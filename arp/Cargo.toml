@@ -1,0 +1,14 @@
+[package]
+name = "dhcp-arp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eui48 = "1.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+nix = "0.29"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tokio-process = "0.2.2"

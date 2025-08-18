@@ -1,0 +1,24 @@
+[package]
+name = "dhcp-client"
+version = "0.1.1"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+bytes = "0.4"
+eui48 = "1.1"
+chrono = { version = "0.4", features = ["serde"] }
+hostname = "0.4"
+rand = "0.8"
+dhcp-protocol = { path = "../protocol" }
+dhcp-framed = { path = "../framed" }
+thiserror = "1.0"
+anyhow = "1.0"
+socket2 = "0.5"
+
+[dev-dependencies]
+env_logger = "0.11"
+ifcontrol = { git = "https://github.com/glebpom/rust-netif", rev="fb7e12930d472e5d25a0d43a4fe71aabac3f4ffd" }
+tokio-test = "0.4"

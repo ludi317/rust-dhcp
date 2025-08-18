@@ -1,0 +1,9 @@
+[package]
+name = "dhcp-protocol"
+version = "0.1.1"
+edition = "2021"
+
+[dependencies]
+bytes = "0.4"
+eui48 = "1.1"
+thiserror = "1.0"
