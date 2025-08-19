@@ -50,7 +50,7 @@ pub struct LeaseInfo {
     /// When the lease was acquired
     pub lease_start: Instant,
     /// Total lease duration in seconds
-    pub lease_time: u32,
+    pub lease_duration: u32,
     /// Time to start renewal (T1) in seconds from lease start
     pub renewal_time: Option<u32>,
     /// Time to start rebinding (T2) in seconds from lease start  
@@ -70,7 +70,7 @@ impl LeaseInfo {
             assigned_ip,
             server_id,
             lease_start: Instant::now(),
-            lease_time,
+            lease_duration: lease_time,
             renewal_time,
             rebinding_time,
         }
@@ -79,13 +79,13 @@ impl LeaseInfo {
     /// Get the T1 time (when to start renewal)
     /// RFC 2131: defaults to 0.5 * lease_time if not provided
     pub fn t1(&self) -> u32 {
-        self.renewal_time.unwrap_or(self.lease_time / 2)
+        self.renewal_time.unwrap_or(self.lease_duration / 2)
     }
 
     /// Get the T2 time (when to start rebinding)  
     /// RFC 2131: defaults to 0.875 * lease_time if not provided
     pub fn t2(&self) -> u32 {
-        self.rebinding_time.unwrap_or(self.lease_time * 7 / 8)
+        self.rebinding_time.unwrap_or(self.lease_duration * 7 / 8)
     }
 
     /// Time until renewal should start (T1)
@@ -113,10 +113,10 @@ impl LeaseInfo {
     /// Time until lease expires
     pub fn time_until_expiry(&self) -> Duration {
         let elapsed = self.lease_start.elapsed().as_secs() as u32;
-        if elapsed >= self.lease_time {
+        if elapsed >= self.lease_duration {
             Duration::from_secs(0)
         } else {
-            Duration::from_secs((self.lease_time - elapsed) as u64)
+            Duration::from_secs((self.lease_duration - elapsed) as u64)
         }
     }
 
@@ -135,40 +135,29 @@ impl LeaseInfo {
         self.time_until_expiry().is_zero()
     }
 
-    /// Get remaining time in current phase for retry calculation
-    pub fn remaining_time_in_phase(&self, state: DhcpState) -> Duration {
-        match state {
-            DhcpState::Renewing => {
-                // Time remaining until T2
-                let time_to_rebind = self.time_until_rebinding();
-                if time_to_rebind.is_zero() {
-                    Duration::from_secs(0)
-                } else {
-                    time_to_rebind
-                }
-            }
-            DhcpState::Rebinding => {
-                // Time remaining until lease expiry
-                self.time_until_expiry()
-            }
-            _ => Duration::from_secs(0),
-        }
-    }
-
-    /// Calculate retry interval according to RFC 2131 section 4.4.3
-    /// 
+    /// Calculate retry interval according to RFC 2131 section 4.4.5
+    ///
     /// "In both RENEWING and REBINDING states, if the client receives no
     /// response to its DHCPREQUEST message, the client SHOULD wait one-half
     /// of the remaining time until T2 (in RENEWING state) and one-half of
     /// the remaining lease time (in REBINDING state), down to a minimum of
     /// 60 seconds, before retransmitting the DHCPREQUEST message."
     pub fn retry_interval(&self, state: DhcpState) -> Duration {
-        let remaining = self.remaining_time_in_phase(state);
+        let remaining = match state {
+            DhcpState::Renewing => {
+                self.time_until_rebinding()
+            }
+            DhcpState::Rebinding => {
+                self.time_until_expiry()
+            }
+            _ => Duration::from_secs(0),
+        };
+
         let half_remaining = remaining / 2;
-        
+
         // Minimum 60 seconds as per RFC
         let min_interval = Duration::from_secs(60);
-        
+
         if half_remaining < min_interval {
             min_interval
         } else {
@@ -231,12 +220,12 @@ impl RetryState {
                 } else {
                     base_interval
                 };
-                
+
                 // Add randomization: -0.5 to +0.5 seconds as per RFC suggestion
                 let mut rng = rand::thread_rng();
                 let randomization_ms = rng.gen_range(-500..=500); // -0.5 to +0.5 seconds in milliseconds
                 let randomized_interval = interval.as_millis() as i64 + randomization_ms as i64;
-                
+
                 // Ensure we don't go negative
                 let final_ms = randomized_interval.max(100) as u64; // Minimum 100ms
                 Duration::from_millis(final_ms)

@@ -551,7 +551,7 @@ impl Client {
                                     // IP conflict detected, decline the address
                                     let server_id = message.options.dhcp_server_id
                                         .ok_or_else(|| ClientError::Protocol("ACK missing server ID".to_string()))?;
-                                    
+
                                     warn!("IP conflict detected for {}, sending DECLINE", assigned_ip);
                                     self.decline(assigned_ip, server_id, "ARP conflict detected".to_string()).await?;
                                     return Err(ClientError::IpConflict);
