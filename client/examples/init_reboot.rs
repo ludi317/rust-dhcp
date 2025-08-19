@@ -43,11 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client.release().await?;
         
         ip
-    }; // Client is dropped here, releasing the socket
-    
-    // Wait for socket to be released by the OS
-    info!("⏳ Waiting for socket release...");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    };
     
     // Simulate client restart - create new client instance with previous IP
     info!("🔄 Phase 2: Client restart with INIT-REBOOT");
@@ -99,48 +95,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     reboot_client.release().await?;
     info!("✅ INIT-REBOOT demonstration completed");
 
-    Ok(())
-}
-
-/// Example showing manual INIT-REBOOT process
-#[allow(dead_code)]
-async fn manual_init_reboot_demo() -> Result<(), Box<dyn std::error::Error>> {
-    let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x58]);
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
-
-    let mut client = Client::new(
-        bind_addr,
-        client_mac,
-        None,
-        Some("manual-init-reboot".to_string()),
-        None,
-        None,
-        true,
-    ).await?;
-
-    // Simulate having a previous IP (e.g., from persistent storage)
-    let previous_ip = Ipv4Addr::new(192, 168, 1, 100);
-    
-    info!("🔄 Manual INIT-REBOOT attempt for IP: {}", previous_ip);
-
-    // Directly attempt INIT-REBOOT
-    match client.init_reboot(previous_ip).await {
-        Ok(config) => {
-            info!("✅ INIT-REBOOT successful!");
-            info!("   📍 Verified IP: {}", config.your_ip_address);
-            info!("   ⏰ Lease time: {}s", client.lease().unwrap().lease_time);
-        }
-        Err(ClientError::Nak) => {
-            info!("❌ Previous IP {} is no longer valid", previous_ip);
-            info!("🔄 Starting fresh DORA sequence...");
-            let config = client.configure().await?;
-            info!("✅ Got new IP: {}", config.your_ip_address);
-        }
-        Err(e) => {
-            info!("❌ INIT-REBOOT failed: {}", e);
-        }
-    }
-
-    client.release().await?;
     Ok(())
 }

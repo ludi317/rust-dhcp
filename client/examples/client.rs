@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bind to DHCP client port on all interfaces
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
-    info!("🚀 Starting RFC 2131 compliant DHCP client");
+    info!("🚀 Starting DHCP client");
 
     // Create RFC compliant client
     let mut client = Client::new(
