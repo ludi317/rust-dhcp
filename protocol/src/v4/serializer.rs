@@ -731,7 +731,7 @@ impl Message {
 
             let (mut i, mut j, mut c) = (0, 0, 0); // iterators
             while c < cursors.len() {
-                let mut cursor = &mut cursors[c];
+                let cursor = &mut cursors[c];
                 let affix_len = if c != CURSOR_INDEX_MAIN {
                     SIZE_OPTION_AFFIXES // only the tag, the length and the END
                 } else {

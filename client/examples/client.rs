@@ -1,11 +1,14 @@
-//! Modern async DHCP client example
+//! RFC 2131 compliant DHCP client example with full state machine
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use eui48::MacAddress;
 use env_logger;
-use log::info;
+use log::{info, warn};
+use tokio::select;
+use tokio::signal;
 
-use dhcp_client::{get_dhcp_config, Client};
+use dhcp_client::{Client, ClientError};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,57 +20,87 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bind to DHCP client port on all interfaces
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
-    info!("Starting modern DHCP client example");
+    info!("🚀 Starting RFC 2131 compliant DHCP client");
 
-    /*
-    // Simple high-level interface
-    match get_dhcp_config(bind_addr, client_mac, Some("rust-dhcp-client".to_string())).await {
+    // Create RFC compliant client
+    let mut client = Client::new(
+        bind_addr,
+        client_mac,
+        None, // client_id (will use MAC)
+        Some("rust-rfc-dhcp-client".to_string()),
+        None, // server_address (broadcast discovery)
+        None, // max_message_size
+        true, // use broadcast
+    ).await?;
+
+    info!("📡 Initial state: {}", client.state());
+
+    // Perform initial DHCP configuration (DORA sequence)
+    match client.configure().await {
         Ok(config) => {
-            println!("DHCP Configuration obtained:");
-            println!("  Your IP: {}", config.your_ip_address);
-            println!("  Server IP: {}", config.server_ip_address);
+            info!("✅ DHCP Configuration obtained:");
+            info!("   📍 Your IP: {}", config.your_ip_address);
+            info!("   🏠 Server IP: {}", config.server_ip_address);
             if let Some(mask) = config.subnet_mask {
-                println!("  Subnet Mask: {}", mask);
+                info!("   🔍 Subnet: {}", mask);
             }
-            if let Some(routers) = &config.routers {
-                println!("  Routers: {:?}", routers);
+            if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
+                info!("   🚪 Gateway: {}", gw);
             }
-            if let Some(dns) = &config.domain_name_servers {
-                println!("  DNS Servers: {:?}", dns);
+            if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
+                info!("   🌐 DNS: {}", dns);
             }
+
+            // Display lease information
+            if let Some(lease) = client.lease() {
+                info!("📋 Lease Information:");
+                info!("   ⏰ Lease Duration: {}s", lease.lease_time);
+                info!("   🔄 T1 (Renewal): {}s", lease.t1());
+                info!("   🔄 T2 (Rebinding): {}s", lease.t2());
+                info!("   ⏳ Time until renewal: {:?}", lease.time_until_renewal());
+                info!("   ⏳ Time until rebinding: {:?}", lease.time_until_rebinding());
+                info!("   ⏳ Time until expiry: {:?}", lease.time_until_expiry());
+            }
+
+            info!("🔄 Current state: {}", client.state());
         }
         Err(e) => {
-            eprintln!("DHCP client error: {}", e);
+            warn!("❌ DHCP configuration failed: {}", e);
             return Err(e.into());
         }
     }
-    */
 
-    // Advanced usage example
-    info!("Demonstrating advanced client usage");
+    // Run the client lifecycle with graceful shutdown
+    info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
     
-    let mut advanced_client = Client::new(
-        bind_addr,
-        client_mac,
-        None, // client_id
-        Some("rust-dhcp-advanced".to_string()),
-        None, // server_address (broadcast)
-        None, // max_message_size
-        true, // broadcast
-    ).await?;
-
-    // Perform discovery
-    let config = advanced_client.discover(None, Some(3600)).await?; // Request 1 hour lease
-    println!("Advanced client got IP: {}", config.your_ip_address);
-
-    // Example: Release the lease
-    if let Some(server_id) = config.server_ip_address.into() {
-        advanced_client.release(
-            config.your_ip_address,
-            server_id,
-            Some("Example release".to_string())
-        ).await?;
-        println!("Released IP address");
+    select! {
+        result = client.run_lifecycle() => {
+            match result {
+                Ok(()) => {
+                    info!("🏁 Client lifecycle completed normally");
+                }
+                Err(ClientError::LeaseExpired) => {
+                    warn!("⏰ Lease expired, would need to restart DHCP process");
+                }
+                Err(e) => {
+                    warn!("❌ Client lifecycle error: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        _ = signal::ctrl_c() => {
+            info!("🛑 Shutdown signal received");
+            
+            // Gracefully release the lease
+            info!("📤 Releasing DHCP lease...");
+            if let Err(e) = client.release().await {
+                warn!("⚠️  Failed to release lease: {}", e);
+            } else {
+                info!("✅ Lease released successfully");
+            }
+            
+            info!("🔄 Final state: {}", client.state());
+        }
     }
 
     Ok(())
