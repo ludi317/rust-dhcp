@@ -5,7 +5,7 @@ mod client;
 mod state;
 
 // Re-export the main types
-pub use self::client::{Client, ClientError, get_dhcp_config};
+pub use self::client::{Client, ClientError};
 pub use self::state::{DhcpState, LeaseInfo};
 
 /// DHCP configuration result from a successful lease.

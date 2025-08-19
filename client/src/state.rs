@@ -222,14 +222,24 @@ impl RetryState {
             (Some(lease), DhcpState::Renewing) | (Some(lease), DhcpState::Rebinding) => {
                 lease.retry_interval(state)
             }
-            // Use exponential backoff for initial requests
+            // Use exponential backoff for initial requests with randomization
             _ => {
-                let interval = self.base_interval * 2_u32.pow(self.attempt.min(6)); // Cap at 2^6
-                if interval > self.max_interval {
+                use rand::Rng;
+                let base_interval = self.base_interval * 2_u32.pow(self.attempt.min(6)); // Cap at 2^6
+                let interval = if base_interval > self.max_interval {
                     self.max_interval
                 } else {
-                    interval
-                }
+                    base_interval
+                };
+                
+                // Add randomization: -0.5 to +0.5 seconds as per RFC suggestion
+                let mut rng = rand::thread_rng();
+                let randomization_ms = rng.gen_range(-500..=500); // -0.5 to +0.5 seconds in milliseconds
+                let randomized_interval = interval.as_millis() as i64 + randomization_ms as i64;
+                
+                // Ensure we don't go negative
+                let final_ms = randomized_interval.max(100) as u64; // Minimum 100ms
+                Duration::from_millis(final_ms)
             }
         }
     }

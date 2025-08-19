@@ -92,7 +92,7 @@ impl Client {
         );
 
         let xid = rand::random();
-        let retry_state = RetryState::new(Duration::from_secs(4)); // RFC 2131 suggests 4s initial
+        let retry_state = RetryState::new(Duration::from_secs(2));
 
         Ok(Client {
             socket,
@@ -866,23 +866,4 @@ impl Client {
             }
         }
     }
-}
-
-/// A simple high-level async DHCP client function
-pub async fn get_dhcp_config(
-    bind_addr: SocketAddr,
-    client_mac: MacAddress,
-    hostname: Option<String>,
-) -> Result<Configuration, ClientError> {
-    let mut client = Client::new(
-        bind_addr,
-        client_mac,
-        None, // client_id
-        hostname,
-        None, // server_address (use broadcast)
-        None, // max_message_size
-        true, // broadcast
-    ).await?;
-
-    client.configure().await
 }
