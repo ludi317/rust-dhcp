@@ -332,6 +332,7 @@ impl Client {
     }
 
     /// Check if IP address exists in system ARP table
+    #[allow(dead_code)]
     async fn check_arp_table(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
         use tokio::process::Command;
         

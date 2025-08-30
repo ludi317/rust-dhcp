@@ -196,6 +196,7 @@ impl MessageBuilder {
     }
 
     /// Creates a general `DHCPINFORM` message.
+    #[allow(dead_code)]
     pub fn inform(
         &self,
         transaction_id: u32,

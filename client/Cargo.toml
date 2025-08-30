@@ -12,6 +12,7 @@ rand = "0.8"
 dhcp-protocol = { path = "../protocol" }
 dhcp-framed = { path = "../framed" }
 thiserror = "1.0"
+env_logger = "0.11"
 
 [dev-dependencies]
 env_logger = "0.11"
