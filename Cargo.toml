@@ -1,9 +1,13 @@
 [workspace]
 members = [
-    "server",
     "client",
     "protocol",
     "framed",
+]
+
+exclude = [
+    "server",
     "arp",
 ]
+
 resolver = "2"

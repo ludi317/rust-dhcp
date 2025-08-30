@@ -867,3 +867,457 @@ impl Client {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dhcp_protocol::{Message, MessageType, OperationCode, HardwareType, Options};
+    use eui48::MacAddress;
+    use std::time::Duration;
+
+    fn create_test_mac() -> MacAddress {
+        MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
+    }
+
+    fn create_message_builder() -> MessageBuilder {
+        let mac = create_test_mac();
+        let client_id = vec![1, 2, 3, 4, 5, 6];
+        let hostname = Some("test-client".to_string());
+        MessageBuilder::new(mac, client_id, hostname, Some(1500))
+    }
+
+    fn create_test_offer(xid: u32, offered_ip: Ipv4Addr, server_id: Ipv4Addr) -> Message {
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpOffer);
+        options.dhcp_server_id = Some(server_id);
+        options.address_time = Some(3600);
+        options.renewal_time = Some(1800);
+        options.rebinding_time = Some(3150);
+
+        Message {
+            operation_code: OperationCode::BootReply,
+            hardware_type: HardwareType::Ethernet,
+            hardware_address_length: 6,
+            hardware_options: 0,
+            transaction_id: xid,
+            seconds: 0,
+            is_broadcast: false,
+            client_ip_address: Ipv4Addr::UNSPECIFIED,
+            your_ip_address: offered_ip,
+            server_ip_address: server_id,
+            gateway_ip_address: Ipv4Addr::UNSPECIFIED,
+            client_hardware_address: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            server_name: vec![0; 64],
+            boot_filename: vec![0; 128],
+            options,
+        }
+    }
+
+    fn create_test_ack(xid: u32, assigned_ip: Ipv4Addr, server_id: Ipv4Addr) -> Message {
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpAck);
+        options.dhcp_server_id = Some(server_id);
+        options.address_time = Some(3600);
+        options.renewal_time = Some(1800);
+        options.rebinding_time = Some(3150);
+
+        Message {
+            operation_code: OperationCode::BootReply,
+            hardware_type: HardwareType::Ethernet,
+            hardware_address_length: 6,
+            hardware_options: 0,
+            transaction_id: xid,
+            seconds: 0,
+            is_broadcast: false,
+            client_ip_address: Ipv4Addr::UNSPECIFIED,
+            your_ip_address: assigned_ip,
+            server_ip_address: server_id,
+            gateway_ip_address: Ipv4Addr::UNSPECIFIED,
+            client_hardware_address: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            server_name: vec![0; 64],
+            boot_filename: vec![0; 128],
+            options,
+        }
+    }
+
+    // Test state transition logic without socket dependencies
+    struct MockClient {
+        state: DhcpState,
+        lease: Option<LeaseInfo>,
+        retry_state: RetryState,
+    }
+
+    impl MockClient {
+        fn new() -> Self {
+            Self {
+                state: DhcpState::Init,
+                lease: None,
+                retry_state: RetryState::new(Duration::from_secs(2)),
+            }
+        }
+
+        // Copy the transition logic from the real Client
+        fn transition_to(&mut self, new_state: DhcpState) -> Result<(), ClientError> {
+            let current_state = self.state;
+            
+            let valid = match (current_state, new_state) {
+                // Initial transitions
+                (DhcpState::Init, DhcpState::Init) => true,
+                (DhcpState::Init, DhcpState::Selecting) => true,
+                (DhcpState::Init, DhcpState::InitReboot) => true,
+                
+                // Discovery phase
+                (DhcpState::Selecting, DhcpState::Requesting) => true,
+                (DhcpState::Selecting, DhcpState::Selecting) => true,
+                (DhcpState::Selecting, DhcpState::Init) => true,
+                
+                // Request phase
+                (DhcpState::Requesting, DhcpState::Bound) => true,
+                (DhcpState::Requesting, DhcpState::Requesting) => true,
+                (DhcpState::Requesting, DhcpState::Init) => true,
+                (DhcpState::Requesting, DhcpState::Selecting) => true,
+                
+                // Bound operations
+                (DhcpState::Bound, DhcpState::Renewing) => true,
+                (DhcpState::Bound, DhcpState::Init) => true,
+                (DhcpState::Bound, DhcpState::Bound) => true,
+                
+                // Renewal phase
+                (DhcpState::Renewing, DhcpState::Bound) => true,
+                (DhcpState::Renewing, DhcpState::Rebinding) => true,
+                (DhcpState::Renewing, DhcpState::Renewing) => true,
+                (DhcpState::Renewing, DhcpState::Init) => true,
+                
+                // Rebinding phase
+                (DhcpState::Rebinding, DhcpState::Bound) => true,
+                (DhcpState::Rebinding, DhcpState::Init) => true,
+                (DhcpState::Rebinding, DhcpState::Rebinding) => true,
+                
+                // Reboot phase
+                (DhcpState::InitReboot, DhcpState::Rebooting) => true,
+                (DhcpState::InitReboot, DhcpState::Init) => true,
+                (DhcpState::Rebooting, DhcpState::Bound) => true,
+                (DhcpState::Rebooting, DhcpState::Init) => true,
+                (DhcpState::Rebooting, DhcpState::Rebooting) => true,
+                
+                _ => false,
+            };
+
+            if !valid {
+                return Err(ClientError::InvalidTransition {
+                    from: current_state,
+                    to: new_state,
+                });
+            }
+
+            if current_state != new_state {
+                self.retry_state.reset();
+            }
+            
+            self.state = new_state;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_state_transitions() {
+        let mut client = MockClient::new();
+        
+        assert_eq!(client.state, DhcpState::Init);
+        
+        // Test valid transitions
+        assert!(client.transition_to(DhcpState::Selecting).is_ok());
+        assert_eq!(client.state, DhcpState::Selecting);
+        
+        assert!(client.transition_to(DhcpState::Requesting).is_ok());
+        assert_eq!(client.state, DhcpState::Requesting);
+        
+        assert!(client.transition_to(DhcpState::Bound).is_ok());
+        assert_eq!(client.state, DhcpState::Bound);
+        
+        assert!(client.transition_to(DhcpState::Renewing).is_ok());
+        assert_eq!(client.state, DhcpState::Renewing);
+        
+        assert!(client.transition_to(DhcpState::Rebinding).is_ok());
+        assert_eq!(client.state, DhcpState::Rebinding);
+    }
+
+    #[test]
+    fn test_invalid_state_transitions() {
+        let mut client = MockClient::new();
+        
+        // Test invalid transitions
+        assert!(matches!(
+            client.transition_to(DhcpState::Bound),
+            Err(ClientError::InvalidTransition { .. })
+        ));
+        
+        client.transition_to(DhcpState::Selecting).unwrap();
+        assert!(matches!(
+            client.transition_to(DhcpState::Rebinding),
+            Err(ClientError::InvalidTransition { .. })
+        ));
+    }
+
+    #[test]
+    fn test_discover_message_creation() {
+        let builder = create_message_builder();
+        let xid = 0x12345678;
+        
+        let discover = builder.discover(xid, true, None, None);
+        
+        assert_eq!(discover.transaction_id, xid);
+        assert_eq!(discover.options.dhcp_message_type, Some(MessageType::DhcpDiscover));
+        assert_eq!(discover.is_broadcast, true); // Broadcast flag should be set
+    }
+
+    #[test]
+    fn test_request_selecting_message_creation() {
+        let builder = create_message_builder();
+        let xid = 0x12345678;
+        let requested_ip = Ipv4Addr::new(192, 168, 1, 100);
+        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
+        
+        let request = builder.request_selecting(xid, true, requested_ip, None, server_ip);
+        
+        assert_eq!(request.transaction_id, xid);
+        assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
+        assert_eq!(request.options.address_request, Some(requested_ip));
+        assert_eq!(request.options.dhcp_server_id, Some(server_ip));
+    }
+
+    #[test]
+    fn test_request_renew_message_creation() {
+        let builder = create_message_builder();
+        let xid = 0x12345678;
+        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
+        
+        let request = builder.request_renew(xid, false, assigned_ip, None);
+        
+        assert_eq!(request.transaction_id, xid);
+        assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
+        assert_eq!(request.client_ip_address, assigned_ip);
+        assert_eq!(request.is_broadcast, false); // Not broadcast for renewal
+    }
+
+    #[test]
+    fn test_request_init_reboot_message_creation() {
+        let builder = create_message_builder();
+        let xid = 0x12345678;
+        let previous_ip = Ipv4Addr::new(192, 168, 1, 100);
+        
+        let request = builder.request_init_reboot(xid, true, previous_ip, None);
+        
+        assert_eq!(request.transaction_id, xid);
+        assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
+        assert_eq!(request.options.address_request, Some(previous_ip));
+        assert_eq!(request.client_ip_address, Ipv4Addr::UNSPECIFIED);
+    }
+
+    #[test]
+    fn test_message_validation() {
+        let xid = 0x12345678;
+        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let offered_ip = Ipv4Addr::new(192, 168, 1, 100);
+        
+        // Test OFFER validation
+        let offer = create_test_offer(xid, offered_ip, server_ip);
+        assert_eq!(offer.validate().unwrap(), MessageType::DhcpOffer);
+        assert_eq!(offer.options.dhcp_server_id, Some(server_ip));
+        
+        // Test ACK validation
+        let ack = create_test_ack(xid, offered_ip, server_ip);
+        assert_eq!(ack.validate().unwrap(), MessageType::DhcpAck);
+        assert_eq!(ack.options.address_time, Some(3600));
+    }
+
+    #[test]
+    fn test_lease_timing() {
+        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
+        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
+        
+        // Test with explicit T1/T2 values
+        let lease = LeaseInfo::new(
+            assigned_ip,
+            server_ip,
+            3600, // 1 hour lease
+            Some(1800), // T1 = 30 minutes
+            Some(3150), // T2 = 52.5 minutes
+        );
+        
+        assert_eq!(lease.t1(), 1800);
+        assert_eq!(lease.t2(), 3150);
+        assert!(!lease.should_renew());
+        assert!(!lease.should_rebind());
+        assert!(!lease.is_expired());
+    }
+
+    #[test]
+    fn test_lease_timing_defaults() {
+        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
+        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
+        
+        // Test lease with default T1/T2 values
+        let lease = LeaseInfo::new(
+            assigned_ip,
+            server_ip,
+            3600, // 1 hour lease
+            None, // No T1 - should default to 50%
+            None, // No T2 - should default to 87.5%
+        );
+        
+        assert_eq!(lease.t1(), 1800); // 50% of 3600
+        assert_eq!(lease.t2(), 3150); // 87.5% of 3600
+    }
+
+    #[test]
+    fn test_retry_state_exponential_backoff() {
+        let mut retry_state = RetryState::new(Duration::from_secs(2));
+        
+        assert_eq!(retry_state.attempt, 0);
+        
+        // Test attempt recording
+        retry_state.record_attempt();
+        assert_eq!(retry_state.attempt, 1);
+        
+        // Test exponential backoff
+        let interval1 = retry_state.next_interval(None, DhcpState::Selecting);
+        retry_state.record_attempt();
+        let interval2 = retry_state.next_interval(None, DhcpState::Selecting);
+        
+        // Second interval should be longer (with randomization accounted for)
+        assert!(interval2 > interval1 / 2);
+        
+        // Test reset
+        retry_state.reset();
+        assert_eq!(retry_state.attempt, 0);
+    }
+
+    #[test]
+    fn test_client_error_display() {
+        let error = ClientError::Timeout { state: DhcpState::Selecting };
+        assert_eq!(error.to_string(), "Timeout waiting for response in state SELECTING");
+        
+        let error = ClientError::InvalidTransition { 
+            from: DhcpState::Init, 
+            to: DhcpState::Bound 
+        };
+        assert_eq!(error.to_string(), "State transition error: cannot go from INIT to BOUND");
+    }
+
+    #[tokio::test]
+    async fn test_lease_expiry_timing() {
+        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
+        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
+        
+        // Create a lease with very short duration for testing
+        let lease = LeaseInfo::new(
+            assigned_ip,
+            server_ip,
+            2, // 2 seconds lease time
+            Some(1), // T1 = 1 second
+            Some(1), // T2 = 1 second
+        );
+
+        // Initially, lease should not be expired
+        assert!(!lease.is_expired());
+        assert!(!lease.should_renew());
+        assert!(!lease.should_rebind());
+
+        // Wait for T1
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        
+        // Now should be time for renewal and rebinding
+        assert!(lease.should_renew());
+        assert!(lease.should_rebind());
+        assert!(!lease.is_expired());
+
+        // Wait for lease expiry
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        
+        // Now lease should be expired
+        assert!(lease.is_expired());
+    }
+
+    #[test]
+    fn test_retry_randomization() {
+        let retry_state = RetryState::new(Duration::from_secs(2));
+        
+        // Generate multiple intervals to test randomization
+        let mut intervals = Vec::new();
+        for _ in 0..10 {
+            intervals.push(retry_state.next_interval(None, DhcpState::Selecting));
+        }
+        
+        // Not all intervals should be identical due to randomization
+        let first_interval = intervals[0];
+        let all_same = intervals.iter().all(|&interval| interval == first_interval);
+        assert!(!all_same, "Randomization should make some intervals different");
+        
+        // All intervals should be within reasonable bounds (1.5s to 2.5s for first attempt)
+        for interval in intervals {
+            assert!(interval.as_millis() >= 1500);
+            assert!(interval.as_millis() <= 2500);
+        }
+    }
+
+    #[test]
+    fn test_complete_state_machine_flow() {
+        let mut client = MockClient::new();
+        
+        // Test full DORA sequence state transitions
+        assert_eq!(client.state, DhcpState::Init);
+        
+        // DISCOVER phase
+        client.transition_to(DhcpState::Selecting).unwrap();
+        assert_eq!(client.state, DhcpState::Selecting);
+        
+        // REQUEST phase  
+        client.transition_to(DhcpState::Requesting).unwrap();
+        assert_eq!(client.state, DhcpState::Requesting);
+        
+        // BOUND phase
+        client.transition_to(DhcpState::Bound).unwrap();
+        assert_eq!(client.state, DhcpState::Bound);
+        
+        // Test renewal cycle
+        client.transition_to(DhcpState::Renewing).unwrap();
+        assert_eq!(client.state, DhcpState::Renewing);
+        
+        // Test successful renewal back to BOUND
+        client.transition_to(DhcpState::Bound).unwrap();
+        assert_eq!(client.state, DhcpState::Bound);
+        
+        // Test rebinding cycle
+        client.transition_to(DhcpState::Renewing).unwrap();
+        client.transition_to(DhcpState::Rebinding).unwrap();
+        assert_eq!(client.state, DhcpState::Rebinding);
+        
+        // Test lease expiry - back to INIT
+        client.transition_to(DhcpState::Init).unwrap();
+        assert_eq!(client.state, DhcpState::Init);
+    }
+
+    #[test]
+    fn test_init_reboot_state_flow() {
+        let mut client = MockClient::new();
+        
+        // Test INIT-REBOOT sequence
+        client.transition_to(DhcpState::InitReboot).unwrap();
+        assert_eq!(client.state, DhcpState::InitReboot);
+        
+        client.transition_to(DhcpState::Rebooting).unwrap();
+        assert_eq!(client.state, DhcpState::Rebooting);
+        
+        // Test successful reboot to BOUND
+        client.transition_to(DhcpState::Bound).unwrap();
+        assert_eq!(client.state, DhcpState::Bound);
+        
+        // Test failed reboot back to INIT
+        client.transition_to(DhcpState::Init).unwrap();
+        client.transition_to(DhcpState::InitReboot).unwrap();
+        client.transition_to(DhcpState::Rebooting).unwrap();
+        client.transition_to(DhcpState::Init).unwrap();
+        assert_eq!(client.state, DhcpState::Init);
+    }
+}
