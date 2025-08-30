@@ -66,40 +66,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("📡 Initial state: {}", client.state());
 
-    // Perform initial DHCP configuration (DORA sequence)
-    match client.configure().await {
-        Ok(config) => {
-            info!("✅ DHCP Configuration obtained:");
-            info!("   📍 Your IP: {}", config.your_ip_address);
-            info!("   🏠 Server IP: {}", config.server_ip_address);
-            if let Some(mask) = config.subnet_mask {
-                info!("   🔍 Subnet: {}", mask);
-            }
-            if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
-                info!("   🚪 Gateway: {}", gw);
-            }
-            if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
-                info!("   🌐 DNS: {}", dns);
-            }
+    // Perform initial DHCP configuration (DORA sequence) with retries per RFC 2131
+    let config = loop {
+        match client.configure().await {
+            Ok(config) => {
+                info!("✅ DHCP Configuration obtained:");
+                info!("   📍 Your IP: {}", config.your_ip_address);
+                info!("   🏠 Server IP: {}", config.server_ip_address);
+                if let Some(mask) = config.subnet_mask {
+                    info!("   🔍 Subnet: {}", mask);
+                }
+                if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
+                    info!("   🚪 Gateway: {}", gw);
+                }
+                if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
+                    info!("   🌐 DNS: {}", dns);
+                }
 
-            // Display lease information
-            if let Some(lease) = client.lease() {
-                info!("📋 Lease Information:");
-                info!("   ⏰ Lease Duration: {}s", lease.lease_duration);
-                info!("   🔄 T1 (Renewal): {}s", lease.t1());
-                info!("   🔄 T2 (Rebinding): {}s", lease.t2());
-                info!("   ⏳ Time until renewal: {:?}", lease.time_until_renewal());
-                info!("   ⏳ Time until rebinding: {:?}", lease.time_until_rebinding());
-                info!("   ⏳ Time until expiry: {:?}", lease.time_until_expiry());
-            }
+                // Display lease information
+                if let Some(lease) = client.lease() {
+                    info!("📋 Lease Information:");
+                    info!("   ⏰ Lease Duration: {}s", lease.lease_duration);
+                    info!("   🔄 T1 (Renewal): {}s", lease.t1());
+                    info!("   🔄 T2 (Rebinding): {}s", lease.t2());
+                    info!("   ⏳ Time until renewal: {:?}", lease.time_until_renewal());
+                    info!("   ⏳ Time until rebinding: {:?}", lease.time_until_rebinding());
+                    info!("   ⏳ Time until expiry: {:?}", lease.time_until_expiry());
+                }
 
-            info!("🔄 Current state: {}", client.state());
+                info!("🔄 Current state: {}", client.state());
+                break config;
+            }
+            Err(ClientError::Nak) => {
+                warn!("❌ Received DHCP NAK, restarting configuration process");
+                // RFC 2131: restart the configuration process on NAK
+                continue;
+            }
+            Err(e) => {
+                warn!("❌ DHCP configuration failed: {}", e);
+                return Err(e.into());
+            }
         }
-        Err(e) => {
-            warn!("❌ DHCP configuration failed: {}", e);
-            return Err(e.into());
-        }
-    }
+    };
 
     // Run the client lifecycle with graceful shutdown
     info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");

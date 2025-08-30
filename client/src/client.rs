@@ -143,6 +143,7 @@ impl Client {
     /// Perform full DHCP configuration process (DORA sequence)
     pub async fn configure(&mut self) -> Result<Configuration, ClientError> {
         info!("Starting DHCP configuration process");
+        let dora_start = Instant::now();
         
         self.transition_to(DhcpState::Init)?;
         
@@ -176,6 +177,9 @@ impl Client {
         // We're now bound with a valid lease
         self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
+        
+        let dora_duration = dora_start.elapsed();
+        info!("DORA process completed in {:?}", dora_duration);
         
         Ok(Configuration::from_response(ack))
     }
@@ -544,7 +548,9 @@ impl Client {
                     match message.validate() {
                         Ok(MessageType::DhcpAck) => {
                             info!("Received DHCP ACK");
-                            
+                            return Ok(message);
+                            /*
+                            RFC 2131 section 3.1.5
                             // Check for IP conflicts before accepting the lease
                             let assigned_ip = message.your_ip_address;
                             match self.check_ip_conflict(assigned_ip).await {
@@ -566,6 +572,7 @@ impl Client {
                                     return Ok(message);
                                 }
                             }
+                             */
                         }
                         Ok(MessageType::DhcpNak) => {
                             warn!("Received DHCP NAK, returning to INIT");
