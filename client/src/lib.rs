@@ -3,6 +3,7 @@
 mod builder;
 mod client;
 mod state;
+pub mod utils;
 
 // Re-export the main types
 pub use self::client::{Client, ClientError};

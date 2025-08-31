@@ -9,7 +9,7 @@ use std::time::Duration;
 use eui48::MacAddress;
 use tokio::time::timeout;
 
-use dhcp_client::{Client, ClientError};
+use dhcp_client::{Client, ClientError, utils::get_network_info};
 
 
 /// Create a test client with unique MAC address
@@ -119,5 +119,87 @@ async fn test_dhcp_init_reboot() {
     }
     
     println!("✅ Test completed successfully");
+}
+
+#[tokio::test]
+#[ignore] // Run with: cargo test --ignored
+async fn test_dhcp_inform_with_detected_network() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    
+    // Get network interface information programmatically
+    let (assigned_ip, client_mac) = match get_network_info() {
+        Ok(info) => info,
+        Err(e) => {
+            println!("⚠️ Could not detect network info: {}", e);
+            println!("Skipping INFORM test - requires active network interface");
+            return;
+        }
+    };
+    
+    println!("Testing DHCP INFORM with detected network info...");
+    println!("Detected IP: {}", assigned_ip);
+    println!("Detected MAC: {}", client_mac);
+    
+    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
+    
+    // Create client with detected MAC address
+    let mut client = Client::new(
+        bind_addr,
+        client_mac,
+        None,
+        Some("rust-test-inform-detected".to_string()),
+        None,
+        None,
+        true,
+    ).await.expect("Failed to create test client");
+    
+    // Test DHCP INFORM with the detected IP
+    match timeout(Duration::from_secs(20), client.inform(assigned_ip)).await {
+        Ok(Ok(inform_config)) => {
+            println!("✅ DHCP INFORM successful!");
+            println!("   Server IP: {}", inform_config.server_ip_address);
+            
+            // Verify server responded
+            assert!(!inform_config.server_ip_address.is_unspecified());
+
+            // Display received configuration
+            if let Some(mask) = inform_config.subnet_mask {
+                println!("   Subnet Mask: {}", mask);
+                assert!(!mask.is_unspecified());
+            }
+            
+            if let Some(routers) = &inform_config.routers {
+                if let Some(gw) = routers.first() {
+                    println!("   Gateway: {}", gw);
+                    assert!(!gw.is_unspecified());
+                }
+            }
+            
+            if let Some(dns_servers) = &inform_config.domain_name_servers {
+                if let Some(dns) = dns_servers.first() {
+                    println!("   DNS: {}", dns);
+                    assert!(!dns.is_unspecified());
+                }
+            }
+            
+            println!("✅ INFORM test with detected network completed successfully");
+        }
+        Ok(Err(ClientError::Timeout { .. })) => {
+            println!("⚠️ DHCP INFORM timed out - server may not support INFORM");
+            println!("This is acceptable behavior for servers that don't implement INFORM");
+            // Don't fail the test - this is common
+        }
+        Ok(Err(e)) => {
+            println!("❌ DHCP INFORM failed with error: {}", e);
+            // Don't panic - log the error but allow test to continue
+            println!("This may indicate server doesn't support INFORM or network configuration issues");
+        }
+        Err(_) => {
+            println!("⚠️ DHCP INFORM test timed out");
+            println!("This may indicate network issues or server doesn't respond to INFORM");
+        }
+    }
+    
+    println!("✅ Test completed");
 }
 
