@@ -153,16 +153,7 @@ impl LeaseInfo {
             _ => Duration::from_secs(0),
         };
 
-        let half_remaining = remaining / 2;
-
-        // Minimum 60 seconds as per RFC
-        let min_interval = Duration::from_secs(60);
-
-        if half_remaining < min_interval {
-            min_interval
-        } else {
-            half_remaining
-        }
+        (remaining / 2).max(Duration::from_secs(60))
     }
 }
 
