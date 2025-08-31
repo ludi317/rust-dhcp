@@ -804,8 +804,8 @@ impl Client {
         Ok(())
     }
 
-    /// Wait for a specific message type with transaction ID validation
-    async fn wait_for_message_type(&mut self, expected_type: MessageType) -> Result<(SocketAddr, Message), ClientError> {
+    /// Wait for one of the specified message types with transaction ID validation
+    async fn wait_for_message_types(&mut self, expected_types: &[MessageType]) -> Result<(SocketAddr, Message), ClientError> {
         loop {
             if let Some(result) = self.socket.recv_message().await {
                 match result {
@@ -819,11 +819,11 @@ impl Client {
 
                         // Validate message type
                         match message.validate() {
-                            Ok(msg_type) if msg_type == expected_type => {
+                            Ok(msg_type) if expected_types.contains(&msg_type) => {
                                 return Ok((addr, message));
                             }
                             Ok(msg_type) => {
-                                debug!("Got {} but expected {}", msg_type, expected_type);
+                                debug!("Got {} but expected one of {:?}", msg_type, expected_types);
                                 continue;
                             }
                             Err(e) => {
@@ -843,43 +843,15 @@ impl Client {
         }
     }
 
+    /// Wait for a specific message type with transaction ID validation
+    async fn wait_for_message_type(&mut self, expected_type: MessageType) -> Result<(SocketAddr, Message), ClientError> {
+        self.wait_for_message_types(&[expected_type]).await
+    }
+
     /// Wait for ACK or NAK message
     async fn wait_for_ack_or_nak(&mut self) -> Result<Message, ClientError> {
-        loop {
-            if let Some(result) = self.socket.recv_message().await {
-                match result {
-                    Ok((addr, message)) => {
-                        // Validate transaction ID
-                        if message.transaction_id != self.xid {
-                            trace!("Ignoring message with wrong transaction ID: {} (expected {})", 
-                                  message.transaction_id, self.xid);
-                            continue;
-                        }
-
-                        // Check for ACK or NAK
-                        match message.validate() {
-                            Ok(MessageType::DhcpAck) | Ok(MessageType::DhcpNak) => {
-                                return Ok(message);
-                            }
-                            Ok(msg_type) => {
-                                debug!("Got {} but expected ACK or NAK", msg_type);
-                                continue;
-                            }
-                            Err(e) => {
-                                warn!("Invalid message from {}: {}", addr, e);
-                                continue;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Socket error: {}", e);
-                        continue;
-                    }
-                }
-            } else {
-                return Err(ClientError::Protocol("Socket stream ended".to_string()));
-            }
-        }
+        let (_, message) = self.wait_for_message_types(&[MessageType::DhcpAck, MessageType::DhcpNak]).await?;
+        Ok(message)
     }
 }
 

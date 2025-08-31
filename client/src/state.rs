@@ -222,8 +222,8 @@ impl RetryState {
                 };
 
                 let mut rng = rand::thread_rng();
-                let randomized_interval = interval.as_millis() as u64 + rng.gen_range(-500..=500) as u64; // -0.5 to +0.5 seconds in milliseconds
-                Duration::from_millis(randomized_interval)
+                let randomized_interval = interval.as_millis() as i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
+                Duration::from_millis(randomized_interval as u64)
             }
         }
     }
