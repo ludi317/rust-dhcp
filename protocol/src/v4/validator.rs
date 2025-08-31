@@ -64,8 +64,9 @@ impl Message {
                 must_set_option!(message.options.dhcp_server_id);
             }
             MessageType::DhcpAck => {
-                must_set_option!(message.options.address_time);
                 must_set_option!(message.options.dhcp_server_id);
+                // Note: address_time is not required for DHCP ACK responses to INFORM messages
+                // since no lease is being granted - the client already has an IP address
             }
             MessageType::DhcpNak => {
                 must_set_option!(message.options.dhcp_server_id);

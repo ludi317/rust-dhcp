@@ -285,6 +285,35 @@ impl Client {
         Ok(())
     }
 
+    /// Send DHCP INFORM message to get additional configuration
+    pub async fn inform(&mut self, client_ip: Ipv4Addr) -> Result<Configuration, ClientError> {
+        info!("Sending DHCP INFORM for IP: {}", client_ip);
+        
+        let inform = self.builder.inform(
+            self.xid,
+            self.broadcast,
+            client_ip,
+        );
+
+        self.send_message(inform).await?;
+        info!("Sent DHCP INFORM");
+
+        // Wait for ACK response
+        let timeout_duration = Duration::from_secs(10);
+        
+        match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpAck)).await {
+            Ok(Ok((_, ack))) => {
+                info!("Received DHCP ACK for INFORM");
+                Ok(Configuration::from_response(ack))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                warn!("INFORM timeout after {:?}", timeout_duration);
+                Err(ClientError::Timeout { state: self.state })
+            }
+        }
+    }
+
     /// Check for IP conflicts using ARP and ICMP probing (macOS implementation)
     /// Implements RFC 2131 section 2.2 requirement for client-side conflict detection
     pub async fn check_ip_conflict(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {

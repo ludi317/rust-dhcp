@@ -48,6 +48,8 @@ cargo run --bin client 11-22-33-44-55-66
 
 ```bash
 cargo run --example short_demo
+cargo run --example init_reboot
+cargo run --example inform
 ```
 
 ## Observing DHCP Traffic
