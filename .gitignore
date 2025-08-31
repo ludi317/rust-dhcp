@@ -4,3 +4,4 @@
 *.lock
 *.sh
 .history
+.jj/
