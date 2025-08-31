@@ -57,18 +57,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         true,
     ).await?;
 
-    // Set the previous IP for INIT-REBOOT attempt
-    reboot_client.set_previous_ip(previous_ip);
-    info!("📍 Set previous IP for reboot: {}", previous_ip);
+    info!("📍 Attempting INIT-REBOOT for IP: {}", previous_ip);
 
-    // Attempt to reconfigure - this will try INIT-REBOOT first
-    match reboot_client.configure().await {
+    match reboot_client.init_reboot(previous_ip).await {
         Ok(config) => {
-            if config.your_ip_address == previous_ip {
-                info!("🎉 SUCCESS: INIT-REBOOT successful! Reused IP: {}", config.your_ip_address);
-            } else {
-                info!("🔄 INIT-REBOOT failed, got new IP through DORA: {}", config.your_ip_address);
-            }
+            info!("🎉 SUCCESS: INIT-REBOOT successful! Reused IP: {}", config.your_ip_address);
             
             // Display configuration
             info!("📋 Final Configuration:");
@@ -83,10 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(ClientError::Nak) => {
             info!("❌ INIT-REBOOT failed: Previous IP no longer valid");
-            info!("🔄 Would normally fall back to full DORA sequence");
         }
         Err(e) => {
-            info!("❌ Configuration failed: {}", e);
+            info!("❌ INIT-REBOOT failed: {}", e);
             return Err(e.into());
         }
     }

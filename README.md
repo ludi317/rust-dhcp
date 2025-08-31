@@ -9,55 +9,45 @@ TODO: Server
 
 - ✅ **Complete RFC 2131 Compliance** - Full DHCP state machine with proper transitions
 - ✅ **Automatic Lease Management** - T1/T2 timers, renewal, rebinding, and expiration handling
-- ✅ **INIT-REBOOT Support** - Efficient IP reuse on client restart (RFC 2131 section 4.3.2)
-- ✅ **IP Conflict Detection** - ARP/ICMP probing with DHCP DECLINE (RFC 2131 section 2.2)
-- ✅ **RFC-Compliant Retry Logic** - Exponential backoff for initial requests, standards-compliant intervals for renewal/rebinding
 - ✅ **Modern Async/Await API** - Clean, readable async operations using Tokio
-- ✅ **Flexible API** - Simple high-level function or full client with lifecycle management
-- ✅ **Cross-Platform** - Linux, macOS, Windows support
 - ✅ **Zero-Copy Operations** - Efficient packet processing
 - ✅ **Comprehensive Error Handling** - Structured error types with `thiserror`
-- ✅ **Production Ready** - Graceful shutdown, proper resource cleanup
+
+## Running Client Executable
+```bash
+cargo run --bin client 11-22-33-44-55-66
+[2025-08-31T00:36:06Z INFO  client] Starting DHCP client with MAC address: 11-22-33-44-55-66
+[2025-08-31T00:36:06Z INFO  client] Using broadcast for server discovery
+[2025-08-31T00:36:06Z INFO  client] 🚀 Starting DHCP client
+[2025-08-31T00:36:06Z INFO  client] 📡 Initial state: INIT
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Starting DHCP configuration process
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Sent DHCP DISCOVER (attempt 1)
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Received DHCP OFFER for 192.168.8.52
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Sent DHCP REQUEST for 192.168.8.52 (attempt 1)
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Received DHCP ACK
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] Lease established: IP=192.168.8.52, Server=192.168.10.1, Duration=7200s
+[2025-08-31T00:36:06Z INFO  dhcp_client::client] DORA sequence completed in 177 ms
+[2025-08-31T00:36:06Z INFO  client] ✅ DHCP Configuration obtained:
+[2025-08-31T00:36:06Z INFO  client]    📍 Your IP: 192.168.8.52
+[2025-08-31T00:36:06Z INFO  client]    🏠 Server IP: 0.0.0.0
+[2025-08-31T00:36:06Z INFO  client]    🔍 Subnet: 255.255.252.0
+[2025-08-31T00:36:06Z INFO  client]    🚪 Gateway: 192.168.10.1
+[2025-08-31T00:36:06Z INFO  client]    🌐 DNS: 192.168.8.53
+[2025-08-31T00:36:06Z INFO  client] 📋 Lease Information:
+[2025-08-31T00:36:06Z INFO  client]    ⏰ Lease Duration: 7200s
+[2025-08-31T00:36:06Z INFO  client]    🔄 T1 (Renewal): 3600s
+[2025-08-31T00:36:06Z INFO  client]    🔄 T2 (Rebinding): 6300s
+[2025-08-31T00:36:06Z INFO  client]    ⏳ Time until renewal: 3600s
+[2025-08-31T00:36:06Z INFO  client]    ⏳ Time until rebinding: 6300s
+[2025-08-31T00:36:06Z INFO  client]    ⏳ Time until expiry: 7200s
+[2025-08-31T00:36:06Z INFO  client] 🔄 Current state: BOUND
+[2025-08-31T00:36:06Z INFO  client] 🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)
+```
 
 ## Running Examples
 
-### Prerequisites
-
-DHCP clients need to bind to port 68, which typically requires root privileges:
-
 ```bash
-# Full lifecycle client (production use)
-sudo cargo run --example client
-[2025-08-19T00:36:11Z INFO  client] 🚀 Starting RFC 2131 compliant DHCP client
-[2025-08-19T00:36:11Z INFO  client] 📡 Initial state: INIT
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Starting DHCP configuration process
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Sent DHCP DISCOVER (attempt 1)
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Received DHCP OFFER for 192.168.8.63
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Sent DHCP REQUEST for 192.168.8.63 (attempt 1)
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Received DHCP ACK
-[2025-08-19T00:36:11Z INFO  dhcp_client::client] Checking for IP conflict: 192.168.8.63
-[2025-08-19T00:36:13Z INFO  dhcp_client::client] Lease established: IP=192.168.8.63, Server=192.168.10.1, Duration=7200s
-[2025-08-19T00:36:13Z INFO  client] ✅ DHCP Configuration obtained:
-[2025-08-19T00:36:13Z INFO  client]    📍 Your IP: 192.168.8.63
-[2025-08-19T00:36:13Z INFO  client]    🏠 Server IP: 0.0.0.0
-[2025-08-19T00:36:13Z INFO  client]    🔍 Subnet: 255.255.252.0
-[2025-08-19T00:36:13Z INFO  client]    🚪 Gateway: 192.168.10.1
-[2025-08-19T00:36:13Z INFO  client]    🌐 DNS: 192.168.8.53
-[2025-08-19T00:36:13Z INFO  client] 📋 Lease Information:
-[2025-08-19T00:36:13Z INFO  client]    ⏰ Lease Duration: 7200s
-[2025-08-19T00:36:13Z INFO  client]    🔄 T1 (Renewal): 3600s
-[2025-08-19T00:36:13Z INFO  client]    🔄 T2 (Rebinding): 6300s
-[2025-08-19T00:36:13Z INFO  client]    ⏳ Time until renewal: 3600s
-[2025-08-19T00:36:13Z INFO  client]    ⏳ Time until rebinding: 6300s
-[2025-08-19T00:36:13Z INFO  client]    ⏳ Time until expiry: 7200s
-[2025-08-19T00:36:13Z INFO  client] 🔄 Current state: BOUND
-[2025-08-19T00:36:13Z INFO  client] 🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)
-^C[2025-08-19T00:36:21Z INFO  client] 🛑 Shutdown signal received
-[2025-08-19T00:36:21Z INFO  client] 📤 Releasing DHCP lease...
-[2025-08-19T00:36:21Z INFO  dhcp_client::client] Sent DHCP RELEASE to 192.168.10.1
-[2025-08-19T00:36:21Z INFO  client] ✅ Lease released successfully
-[2025-08-19T00:36:21Z INFO  client] 🔄 Final state: INIT
-
+cargo run --example short_demo
 ```
 
 ## Observing DHCP Traffic

@@ -1,4 +1,3 @@
-//! RFC 2131 compliant DHCP client with full state machine
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
@@ -37,7 +36,6 @@ pub enum ClientError {
     ArpCheck(String),
 }
 
-/// RFC 2131 compliant DHCP client with full state machine
 pub struct Client {
     /// Network socket for DHCP communication
     socket: DhcpFramed,
@@ -64,7 +62,6 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new RFC compliant DHCP client
     pub async fn new(
         bind_addr: SocketAddr,
         client_hardware_address: MacAddress,
@@ -147,25 +144,6 @@ impl Client {
         
         self.transition_to(DhcpState::Init)?;
         
-        // Check if we have a previous IP to try to reuse (INIT-REBOOT)
-        if let Some(previous_ip) = self.previous_ip {
-            info!("Attempting to reuse previous IP: {}", previous_ip);
-            match self.init_reboot(previous_ip).await {
-                Ok(config) => {
-                    info!("Successfully reused previous IP");
-                    return Ok(config);
-                }
-                Err(ClientError::Nak) => {
-                    info!("Previous IP rejected, starting full discovery");
-                    self.previous_ip = None; // Clear rejected IP
-                }
-                Err(e) => {
-                    warn!("Init-reboot failed: {}, starting full discovery", e);
-                    self.previous_ip = None;
-                }
-            }
-        }
-        
         // Start discovery process
         self.transition_to(DhcpState::Selecting)?;
         let offer = self.discover_phase().await?;
@@ -178,8 +156,8 @@ impl Client {
         self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
         
-        let dora_duration = dora_start.elapsed();
-        info!("DORA process completed in {:?}", dora_duration);
+        let dora_duration = dora_start.elapsed().as_millis();
+        info!("DORA sequence completed in {:?} ms", dora_duration);
         
         Ok(Configuration::from_response(ack))
     }

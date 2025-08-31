@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use eui48::MacAddress;
 use env_logger;
-use log::info;
+use log::{info, warn};
+use tokio::{select, signal};
 use tokio::time::timeout;
 
-use dhcp_client::Client;
+use dhcp_client::{Client, ClientError};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,28 +31,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🎬 Short RFC client demonstration");
 
     // Get initial configuration
-    let config = client.configure().await?;
-    info!("📍 Obtained IP: {}", config.your_ip_address);
+    // Perform initial DHCP configuration (DORA sequence)
+    match client.configure().await {
+        Ok(config) => {
+            info!("✅ DHCP Configuration obtained:");
+            info!("   📍 Your IP: {}", config.your_ip_address);
+            info!("   🏠 Server IP: {}", config.server_ip_address);
+            if let Some(mask) = config.subnet_mask {
+                info!("   🔍 Subnet: {}", mask);
+            }
+            if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
+                info!("   🚪 Gateway: {}", gw);
+            }
+            if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
+                info!("   🌐 DNS: {}", dns);
+            }
 
-    // Simulate running for a while
-    info!("⏳ Simulating client operation for 30 seconds...");
-    
-    // Use timeout to limit the lifecycle demo
-    match timeout(Duration::from_secs(30), client.run_lifecycle()).await {
-        Ok(Ok(())) => {
-            info!("🏁 Lifecycle completed");
+            // Display lease information
+            if let Some(lease) = client.lease() {
+                info!("📋 Lease Information:");
+                info!("   ⏰ Lease Duration: {}s", lease.lease_duration);
+                info!("   🔄 T1 (Renewal): {}s", lease.t1());
+                info!("   🔄 T2 (Rebinding): {}s", lease.t2());
+                info!("   ⏳ Time until renewal: {:?}", lease.time_until_renewal());
+                info!("   ⏳ Time until rebinding: {:?}", lease.time_until_rebinding());
+                info!("   ⏳ Time until expiry: {:?}", lease.time_until_expiry());
+            }
+
+            info!("🔄 Current state: {}", client.state());
         }
-        Ok(Err(e)) => {
-            info!("⚠️  Lifecycle ended with: {}", e);
-        }
-        Err(_) => {
-            info!("⏰ Demo timeout reached");
+        Err(e) => {
+            warn!("❌ DHCP configuration failed: {}", e);
+            return Err(e.into());
         }
     }
 
-    // Release the lease
-    client.release().await?;
-    info!("✅ Demo completed and lease released");
+    // Simulate running for a while
+    info!("⏳ Simulating client operation for 10 seconds...");
 
+    select! {
+        result = timeout(Duration::from_secs(10), client.run_lifecycle()) => {
+            match result {
+                Ok(Ok(())) => {
+                    info!("🏁 Client lifecycle completed normally");
+                }
+                Ok(Err(ClientError::LeaseExpired)) => {
+                    warn!("⏰ Lease expired, would need to restart DHCP process");
+                }
+                Ok(Err(e)) => {
+                    warn!("❌ Client lifecycle error: {}", e);
+                    return Err(e.into());
+                }
+                Err(_) => {
+                    info!("⏰ 10 second timeout reached, stopping lifecycle");
+                }
+            }
+        }
+        _ = signal::ctrl_c() => {
+            info!("🛑 Shutdown signal received");
+
+        }
+    }
+    // Gracefully release the lease
+    info!("📤 Releasing DHCP lease...");
+    if let Err(e) = client.release().await {
+        warn!("⚠️  Failed to release lease: {}", e);
+    } else {
+        info!("✅ Lease released successfully");
+    }
     Ok(())
 }

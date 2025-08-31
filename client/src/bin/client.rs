@@ -1,21 +1,21 @@
 //! DHCP client executable
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::env;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
 
+use dhcp_client::{Client, ClientError};
+use env_logger;
 use eui48::MacAddress;
 use log::{info, warn};
-use env_logger;
 use tokio::{select, signal};
-use dhcp_client::{Client, ClientError};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
         eprintln!("Usage: {} <interface_mac_address> [server_ip]", args[0]);
         eprintln!("Example: {} 00:11:22:33:44:55", args[0]);
@@ -62,12 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None, // server_address (broadcast discovery)
         None, // max_message_size
         true, // use broadcast
-    ).await?;
+    )
+    .await?;
 
     info!("📡 Initial state: {}", client.state());
 
-    // Perform initial DHCP configuration (DORA sequence) with retries per RFC 2131
-    let config = loop {
+    // Main DHCP client loop with configuration and lifecycle management
+    loop {
         match client.configure().await {
             Ok(config) => {
                 info!("✅ DHCP Configuration obtained:");
@@ -95,50 +96,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 info!("🔄 Current state: {}", client.state());
-                break config;
             }
             Err(ClientError::Nak) => {
                 warn!("❌ Received DHCP NAK, restarting configuration process");
-                // RFC 2131: restart the configuration process on NAK
                 continue;
             }
             Err(e) => {
                 warn!("❌ DHCP configuration failed: {}", e);
                 return Err(e.into());
             }
-        }
-    };
+        };
 
-    // Run the client lifecycle with graceful shutdown
-    info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
+        // Run the client lifecycle with graceful shutdown
+        info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
 
-    select! {
-        result = client.run_lifecycle() => {
-            match result {
-                Ok(()) => {
-                    info!("🏁 Client lifecycle completed normally");
-                }
-                Err(ClientError::LeaseExpired) => {
-                    warn!("⏰ Lease expired, would need to restart DHCP process");
-                }
-                Err(e) => {
-                    warn!("❌ Client lifecycle error: {}", e);
-                    return Err(e.into());
+        select! {
+            result = client.run_lifecycle() => {
+                match result {
+                    Ok(()) => {
+                        unreachable!("lifecycle should run indefinitely");
+                    }
+                    Err(ClientError::LeaseExpired) => {
+                        warn!("⏰ Lease expired, returning to INIT and restarting configuration");
+                        continue; // Restart configuration loop
+                    }
+                    Err(e) => {
+                        warn!("❌ Client lifecycle error: {}", e);
+                        return Err(e.into());
+                    }
                 }
             }
-        }
-        _ = signal::ctrl_c() => {
-            info!("🛑 Shutdown signal received");
+            _ = signal::ctrl_c() => {
+                info!("🛑 Shutdown signal received");
 
-            // Gracefully release the lease
-            info!("📤 Releasing DHCP lease...");
-            if let Err(e) = client.release().await {
-                warn!("⚠️  Failed to release lease: {}", e);
-            } else {
-                info!("✅ Lease released successfully");
+                // Gracefully release the lease
+                info!("📤 Releasing DHCP lease...");
+                if let Err(e) = client.release().await {
+                    warn!("⚠️  Failed to release lease: {}", e);
+                } else {
+                    info!("✅ Lease released successfully");
+                }
+
+                info!("🔄 Final state: {}", client.state());
+                break;
             }
-
-            info!("🔄 Final state: {}", client.state());
         }
     }
     Ok(())
