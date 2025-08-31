@@ -37,7 +37,8 @@ impl Configuration {
 
         Configuration {
             your_ip_address: response.your_ip_address,
-            server_ip_address: response.server_ip_address,
+            // Use DHCP server ID from options if available, otherwise fall back to server_ip_address
+            server_ip_address: response.options.dhcp_server_id.unwrap_or(response.server_ip_address),
             subnet_mask: response.options.subnet_mask,
             routers: response.options.routers,
             domain_name_servers: response.options.domain_name_servers,
