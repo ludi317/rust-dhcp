@@ -1,6 +1,8 @@
 //! DHCP INFORM demonstration example
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::process::Command;
+use std::str::FromStr;
 
 use eui48::MacAddress;
 use env_logger;
@@ -8,15 +10,60 @@ use log::info;
 
 use dhcp_client::{Client, ClientError};
 
+/// Get the primary network interface's IP address and MAC address
+fn get_network_info() -> Result<(Ipv4Addr, MacAddress), Box<dyn std::error::Error>> {
+    // Get IP address using route command to find the default interface
+    let output = Command::new("route")
+        .args(&["-n", "get", "default"])
+        .output()?;
+    
+    let route_output = String::from_utf8(output.stdout)?;
+    
+    // Extract interface name
+    let interface = route_output
+        .lines()
+        .find(|line| line.trim().starts_with("interface:"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or("Could not find default interface")?;
+    
+    info!("Using interface: {}", interface);
+    
+    // Get IP address for this interface
+    let ip_output = Command::new("ifconfig")
+        .arg(interface)
+        .output()?;
+    
+    let ifconfig_output = String::from_utf8(ip_output.stdout)?;
+    
+    // Extract IP address
+    let ip_str = ifconfig_output
+        .lines()
+        .find(|line| line.trim().starts_with("inet ") && !line.contains("127.0.0.1"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or("Could not find IP address")?;
+    
+    let ip = Ipv4Addr::from_str(ip_str)?;
+    
+    // Extract MAC address
+    let mac_str = ifconfig_output
+        .lines()
+        .find(|line| line.trim().starts_with("ether "))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or("Could not find MAC address")?;
+    
+    let mac = MacAddress::from_str(mac_str)?;
+    
+    Ok((ip, mac))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    // Note: these values are taken from my work laptop
-    let assigned_ip = "192.168.8.59".parse::<Ipv4Addr>().unwrap();
-    let client_mac = MacAddress::new([0xbc, 0xd0, 0x74, 0x59, 0x92, 0x41]);
-
-
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    
+    let (assigned_ip, client_mac) = get_network_info()?;
+    
+    info!("Detected IP: {}", assigned_ip);
+    info!("Detected MAC: {}", client_mac);
 
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
