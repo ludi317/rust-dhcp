@@ -39,9 +39,6 @@ $ cargo run --bin client 11-22-33-44-55-66
 [2025-08-31T22:18:19Z INFO  client]    ⏰ Lease Duration: 7200s
 [2025-08-31T22:18:19Z INFO  client]    🔄 T1 (Renewal): 3600s
 [2025-08-31T22:18:19Z INFO  client]    🔄 T2 (Rebinding): 6300s
-[2025-08-31T22:18:19Z INFO  client]    ⏳ Time until renewal: 3600s
-[2025-08-31T22:18:19Z INFO  client]    ⏳ Time until rebinding: 6300s
-[2025-08-31T22:18:19Z INFO  client]    ⏳ Time until expiry: 7200s
 [2025-08-31T22:18:19Z INFO  client] 🔄 Current state: BOUND
 [2025-08-31T22:18:19Z INFO  client] 🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)
 ```
