@@ -181,11 +181,11 @@ pub struct RetryState {
 
 impl RetryState {
     /// Create new retry state
-    pub fn new(base_interval: Duration) -> Self {
+    pub fn new() -> Self {
         Self {
             attempt: 0,
             last_attempt: Instant::now(),
-            base_interval,
+            base_interval: Duration::from_secs(2),
             max_interval: Duration::from_secs(64), // RFC 2131 suggests 64s max for initial requests
         }
     }
@@ -221,14 +221,9 @@ impl RetryState {
                     base_interval
                 };
 
-                // Add randomization: -0.5 to +0.5 seconds as per RFC suggestion
                 let mut rng = rand::thread_rng();
-                let randomization_ms = rng.gen_range(-500..=500); // -0.5 to +0.5 seconds in milliseconds
-                let randomized_interval = interval.as_millis() as i64 + randomization_ms as i64;
-
-                // Ensure we don't go negative
-                let final_ms = randomized_interval.max(100) as u64; // Minimum 100ms
-                Duration::from_millis(final_ms)
+                let randomized_interval = interval.as_millis() as u64 + rng.gen_range(-500..=500) as u64; // -0.5 to +0.5 seconds in milliseconds
+                Duration::from_millis(randomized_interval)
             }
         }
     }

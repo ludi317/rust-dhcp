@@ -89,7 +89,7 @@ impl Client {
         );
 
         let xid = rand::random();
-        let retry_state = RetryState::new(Duration::from_secs(2));
+        let retry_state = RetryState::new();
 
         Ok(Client {
             socket,
@@ -967,7 +967,7 @@ mod tests {
             Self {
                 state: DhcpState::Init,
                 lease: None,
-                retry_state: RetryState::new(Duration::from_secs(2)),
+                retry_state: RetryState::new(),
             }
         }
 
@@ -1187,7 +1187,7 @@ mod tests {
 
     #[test]
     fn test_retry_state_exponential_backoff() {
-        let mut retry_state = RetryState::new(Duration::from_secs(2));
+        let mut retry_state = RetryState::new();
         
         assert_eq!(retry_state.attempt, 0);
         
@@ -1256,7 +1256,7 @@ mod tests {
 
     #[test]
     fn test_retry_randomization() {
-        let retry_state = RetryState::new(Duration::from_secs(2));
+        let retry_state = RetryState::new();
         
         // Generate multiple intervals to test randomization
         let mut intervals = Vec::new();
