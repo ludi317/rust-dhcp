@@ -205,7 +205,6 @@ impl Client {
                     // Try to renew with original server
                     match self.renew_phase().await {
                         Ok(ack) => {
-                            info!("Lease renewed successfully");
                             self.transition_to(DhcpState::Bound)?;
                             self.handle_ack(&ack)?;
                         }
@@ -213,7 +212,10 @@ impl Client {
                             // Continue in RENEWING state, will check for T2 on next iteration
                             debug!("Renewal attempt timed out, will retry");
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => {
+                            // Continue
+                            debug!("Renewing failed, will retry: {:?}", e);
+                        }
                     }
                 }
                 DhcpState::Rebinding => {
@@ -228,7 +230,9 @@ impl Client {
                             // Continue in REBINDING state, will check for expiry on next iteration
                             debug!("Rebinding attempt timed out, will retry");
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => {
+                            debug!("Rebinding failed, will retry: {:?}", e);
+                        }
                     }
                 }
                 _ => {
@@ -303,7 +307,10 @@ impl Client {
                 info!("Received DHCP ACK for INFORM");
                 Ok(Configuration::from_response(ack))
             }
-            Ok(Err(e)) => Err(e),
+            Ok(Err(e)) => {
+                warn!("DHCP INFORM failed: {}", e);
+                Err(e)
+            },
             Err(_) => {
                 warn!("INFORM timeout after {:?}", timeout_duration);
                 Err(ClientError::Timeout { state: self.state })
@@ -507,7 +514,9 @@ impl Client {
                     info!("Received DHCP OFFER for {}", offer.your_ip_address);
                     return Ok(offer);
                 }
-                Ok(Err(e)) => return Err(e),
+                Ok(Err(e)) => {
+                    debug!("DHCP OFFER failed, retrying: {}", e);
+                }
                 Err(_) => {
                     debug!("DISCOVER timeout after {:?}, retrying", timeout_duration);
                     // Continue loop for retry
@@ -588,7 +597,9 @@ impl Client {
                         }
                     }
                 }
-                Ok(Err(e)) => return Err(e),
+                Ok(Err(e)) => {
+                    debug!("REQUEST failed, retrying: {}", e);
+                }
                 Err(_) => {
                     debug!("REQUEST timeout after {:?}, retrying", timeout_duration);
                     // Continue loop for retry
@@ -643,7 +654,10 @@ impl Client {
                     }
                 }
             }
-            Ok(Err(e)) => Err(e),
+            Ok(Err(e)) => {
+                debug!("Renewal failed: {}", e);
+                Err(e)
+            }
             Err(_) => {
                 debug!("Renewal timeout after {:?}", timeout_duration);
                 Err(ClientError::Timeout { state: self.state })
@@ -690,7 +704,10 @@ impl Client {
                     }
                 }
             }
-            Ok(Err(e)) => return Err(e),
+            Ok(Err(e)) => {
+                debug!("Rebinding failed: {}", e);
+                return Err(e);
+            }
             Err(_) => {
                 debug!("Rebinding timeout after {:?}", timeout_duration);
             }
@@ -736,7 +753,9 @@ impl Client {
                         }
                     }
                 }
-                Ok(Err(e)) => return Err(e),
+                Ok(Err(e)) => {
+                    debug!("INIT-REBOOT failed, retrying: {}", e);
+                }
                 Err(_) => {
                     debug!("INIT-REBOOT timeout after {:?}, retrying", timeout_duration);
                     // Continue loop for retry
