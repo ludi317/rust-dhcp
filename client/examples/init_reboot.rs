@@ -28,7 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some("rust-init-reboot-demo".to_string()),
             None,
             None,
-            true,
         ).await?;
 
         // First, get an initial lease through normal DORA process
@@ -54,7 +53,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("rust-init-reboot-demo".to_string()),
         None,
         None,
-        true,
     ).await?;
 
     info!("📍 Attempting INIT-REBOOT for IP: {}", previous_ip);

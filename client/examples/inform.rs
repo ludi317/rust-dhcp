@@ -29,7 +29,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("rust-inform-demo".to_string()),
         None,
         None,
-        true,
     ).await?;
 
 

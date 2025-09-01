@@ -24,7 +24,6 @@ async fn create_test_client(hostname: &str) -> Result<Client, ClientError> {
         Some(hostname.to_string()),
         None,
         None,
-        true, // broadcast
     ).await
 }
 
@@ -150,7 +149,6 @@ async fn test_dhcp_inform_with_detected_network() {
         Some("rust-test-inform-detected".to_string()),
         None,
         None,
-        true,
     ).await.expect("Failed to create test client");
     
     // Test DHCP INFORM with the detected IP

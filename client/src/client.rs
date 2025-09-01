@@ -49,8 +49,6 @@ pub struct Client {
     retry_state: RetryState,
     /// Server address for unicast (if known)
     server_address: Option<Ipv4Addr>,
-    /// Whether to use broadcast
-    broadcast: bool,
     /// Current transaction ID
     xid: u32,
     /// Last offered IP (for REQUEST messages)
@@ -69,7 +67,6 @@ impl Client {
         hostname: Option<String>,
         server_address: Option<Ipv4Addr>,
         max_message_size: Option<u16>,
-        broadcast: bool,
     ) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(bind_addr).await?;
         
@@ -98,7 +95,6 @@ impl Client {
             lease: None,
             retry_state,
             server_address,
-            broadcast,
             xid,
             offered_ip: None,
             previous_ip: None,
@@ -292,7 +288,6 @@ impl Client {
         
         let inform = self.builder.inform(
             self.xid,
-            self.broadcast,
             client_ip,
         );
 
@@ -497,9 +492,8 @@ impl Client {
             // Send DISCOVER
             let discover = self.builder.discover(
                 self.xid,
-                self.broadcast,
                 None, // requested IP
-                None, // requested lease time
+                None,
             );
 
             self.send_message(discover).await?;
@@ -541,7 +535,6 @@ impl Client {
             // Send REQUEST
             let request = self.builder.request_selecting(
                 self.xid,
-                self.broadcast,
                 offer.your_ip_address,
                 None, // lease time
                 server_id,
@@ -722,7 +715,6 @@ impl Client {
             // Send REQUEST for previous IP
             let request = self.builder.request_init_reboot(
                 self.xid,
-                self.broadcast,
                 previous_ip,
                 None, // lease time
             );
@@ -1059,7 +1051,7 @@ mod tests {
         let builder = create_message_builder();
         let xid = 0x12345678;
         
-        let discover = builder.discover(xid, true, None, None);
+        let discover = builder.discover(xid, None, None);
         
         assert_eq!(discover.transaction_id, xid);
         assert_eq!(discover.options.dhcp_message_type, Some(MessageType::DhcpDiscover));
@@ -1073,7 +1065,7 @@ mod tests {
         let requested_ip = Ipv4Addr::new(192, 168, 1, 100);
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
         
-        let request = builder.request_selecting(xid, true, requested_ip, None, server_ip);
+        let request = builder.request_selecting(xid, requested_ip, None, server_ip);
         
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
@@ -1101,7 +1093,7 @@ mod tests {
         let xid = 0x12345678;
         let previous_ip = Ipv4Addr::new(192, 168, 1, 100);
         
-        let request = builder.request_init_reboot(xid, true, previous_ip, None);
+        let request = builder.request_init_reboot(xid, previous_ip, None);
         
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));

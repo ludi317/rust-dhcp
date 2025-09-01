@@ -25,7 +25,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("rust-demo-client".to_string()),
         None,
         None,
-        true,
     ).await?;
 
     info!("🎬 Short RFC client demonstration");

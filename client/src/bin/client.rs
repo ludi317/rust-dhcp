@@ -60,8 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None, // client_id (will use MAC)
         Some("rust-rfc-dhcp-client".to_string()),
         None, // server_address (broadcast discovery)
-        None, // max_message_size
-        true, // use broadcast
+        None,
     )
     .await?;
 
