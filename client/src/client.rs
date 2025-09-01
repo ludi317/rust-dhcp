@@ -237,9 +237,6 @@ impl Client {
                     )));
                 }
             }
-
-            // Small delay to prevent busy loop
-            sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -503,7 +500,7 @@ impl Client {
             self.retry_state.record_attempt();
 
             // Wait for OFFER with timeout
-            let timeout_duration = self.retry_state.next_interval(self.lease.as_ref(), self.state);
+            let timeout_duration = self.retry_state.next_interval();
             
             match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpOffer)).await {
                 Ok(Ok((_, offer))) => {
@@ -548,7 +545,7 @@ impl Client {
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
-            let timeout_duration = self.retry_state.next_interval(self.lease.as_ref(), self.state);
+            let timeout_duration = self.retry_state.next_interval();
             
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
                 Ok(Ok(message)) => {
@@ -611,11 +608,6 @@ impl Client {
         let lease = self.lease.clone()
             .ok_or_else(|| ClientError::Protocol("No lease to renew".to_string()))?;
 
-        // Check if we should retry
-        if !self.retry_state.should_retry(Some(&lease), self.state) {
-            return Err(ClientError::Timeout { state: self.state });
-        }
-
         let request = self.builder.request_renew(
             self.xid,
             false, // not broadcast for renewal
@@ -633,41 +625,38 @@ impl Client {
 
         // Wait for response with lease-specific timeout
         let timeout_duration = lease.retry_interval(self.state);
-        
+
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
             Ok(Ok(message)) => {
                 match message.validate() {
                     Ok(MessageType::DhcpAck) => {
                         info!("Lease renewal successful");
-                        return Ok(message);
+                        Ok(message)
                     }
                     Ok(MessageType::DhcpNak) => {
                         warn!("Renewal NAK received, returning to INIT");
-                        return Err(ClientError::Nak);
+                        Err(ClientError::Nak)
                     }
                     _ => {
                         debug!("Received unexpected message type during renewal");
+                        Err(ClientError::InvalidResponse)
                     }
                 }
             }
-            Ok(Err(e)) => return Err(e),
+            Ok(Err(e)) => Err(e),
             Err(_) => {
                 debug!("Renewal timeout after {:?}", timeout_duration);
+                Err(ClientError::Timeout { state: self.state })
             }
         }
 
-        Err(ClientError::Timeout { state: self.state })
+
     }
 
     /// Rebinding phase - send REQUEST to any server
     async fn rebind_phase(&mut self) -> Result<Message, ClientError> {
         let lease = self.lease.clone()
             .ok_or_else(|| ClientError::Protocol("No lease to rebind".to_string()))?;
-
-        // Check if we should retry
-        if !self.retry_state.should_retry(Some(&lease), self.state) {
-            return Err(ClientError::Timeout { state: self.state });
-        }
 
         let request = self.builder.request_renew(
             self.xid,
@@ -728,7 +717,7 @@ impl Client {
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
-            let timeout_duration = self.retry_state.next_interval(self.lease.as_ref(), self.state);
+            let timeout_duration = self.retry_state.next_interval();
             
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
                 Ok(Ok(message)) => {
@@ -1168,9 +1157,9 @@ mod tests {
         assert_eq!(retry_state.attempt, 1);
         
         // Test exponential backoff
-        let interval1 = retry_state.next_interval(None, DhcpState::Selecting);
+        let interval1 = retry_state.next_interval();
         retry_state.record_attempt();
-        let interval2 = retry_state.next_interval(None, DhcpState::Selecting);
+        let interval2 = retry_state.next_interval();
         
         // Second interval should be longer (with randomization accounted for)
         assert!(interval2 > interval1 / 2);
@@ -1233,7 +1222,7 @@ mod tests {
         // Generate multiple intervals to test randomization
         let mut intervals = Vec::new();
         for _ in 0..10 {
-            intervals.push(retry_state.next_interval(None, DhcpState::Selecting));
+            intervals.push(retry_state.next_interval());
         }
         
         // Not all intervals should be identical due to randomization

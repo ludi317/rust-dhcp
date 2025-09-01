@@ -194,34 +194,17 @@ impl RetryState {
     }
 
     /// Get the next retry interval using exponential backoff
-    /// For initial DHCP requests (DISCOVER/REQUEST), uses exponential backoff
-    /// For lease renewal/rebinding, uses RFC 2131 specific calculation
-    pub fn next_interval(&self, lease_info: Option<&LeaseInfo>, state: DhcpState) -> Duration {
-        match (lease_info, state) {
-            // Use RFC 2131 specific retry logic for renewal/rebinding
-            (Some(lease), DhcpState::Renewing) | (Some(lease), DhcpState::Rebinding) => {
-                lease.retry_interval(state)
-            }
-            // Use exponential backoff for initial requests with randomization
-            _ => {
-                use rand::Rng;
-                let base_interval = self.base_interval * 2_u32.pow(self.attempt.min(6)); // Cap at 2^6
-                let interval = if base_interval > self.max_interval {
-                    self.max_interval
-                } else {
-                    base_interval
-                };
+    pub fn next_interval(&self) -> Duration {
+        use rand::Rng;
+        let base_interval = self.base_interval * 2_u32.pow(self.attempt.min(6)); // Cap at 2^6
+        let interval = if base_interval > self.max_interval {
+            self.max_interval
+        } else {
+            base_interval
+        };
 
-                let mut rng = rand::thread_rng();
-                let randomized_interval = interval.as_millis() as i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
-                Duration::from_millis(randomized_interval as u64)
-            }
-        }
-    }
-
-    /// Check if enough time has passed for next retry
-    pub fn should_retry(&self, lease_info: Option<&LeaseInfo>, state: DhcpState) -> bool {
-        let interval = self.next_interval(lease_info, state);
-        self.last_attempt.elapsed() >= interval
+        let mut rng = rand::thread_rng();
+        let randomized_interval = interval.as_millis() as i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
+        Duration::from_millis(randomized_interval as u64)
     }
 }
