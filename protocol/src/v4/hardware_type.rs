@@ -5,7 +5,7 @@ use std::fmt;
 /// DHCP hardware type.
 ///
 /// Only MAC-48 is implemented.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HardwareType {
     Undefined = 0,
     Ethernet,

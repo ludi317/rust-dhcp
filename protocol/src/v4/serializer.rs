@@ -781,3 +781,364 @@ impl Message {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{MessageType, OperationCode, HardwareType, Options};
+    use std::net::Ipv4Addr;
+    use eui48::MacAddress;
+
+    fn create_test_message() -> Message {
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpDiscover);
+        options.dhcp_max_message_size = Some(1500);
+
+        Message {
+            operation_code: OperationCode::BootRequest,
+            hardware_type: HardwareType::Ethernet,
+            hardware_address_length: 6,
+            hardware_options: 0,
+            transaction_id: 0x12345678,
+            seconds: 0,
+            is_broadcast: true,
+            client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
+            your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
+            server_ip_address: Ipv4Addr::new(0, 0, 0, 0),
+            gateway_ip_address: Ipv4Addr::new(0, 0, 0, 0),
+            client_hardware_address: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            server_name: vec![0; 64],
+            boot_filename: vec![0; 128],
+            options,
+        }
+    }
+
+    #[test]
+    fn test_to_bytes_basic_structure() {
+        let message = create_test_message();
+        let mut buffer = vec![0u8; 1024];
+        
+        let result = message.to_bytes(&mut buffer, None);
+        assert!(result.is_ok());
+        let bytes_written = result.unwrap();
+        assert!(bytes_written > 0);
+
+        // Test fixed header structure (240 bytes + options)
+        // Operation code (1 byte)
+        assert_eq!(buffer[0], OperationCode::BootRequest as u8);
+        
+        // Hardware type (1 byte)
+        assert_eq!(buffer[1], HardwareType::Ethernet as u8);
+        
+        // Hardware address length (1 byte)
+        assert_eq!(buffer[2], 6);
+        
+        // Hardware options (1 byte)
+        assert_eq!(buffer[3], 0);
+        
+        // Transaction ID (4 bytes, big-endian)
+        let xid_bytes = [
+            (0x12345678u32 >> 24) as u8,
+            (0x12345678u32 >> 16) as u8,
+            (0x12345678u32 >> 8) as u8,
+            (0x12345678u32 & 0xFF) as u8,
+        ];
+        assert_eq!(&buffer[4..8], &xid_bytes);
+        
+        // Seconds (2 bytes)
+        assert_eq!(&buffer[8..10], &[0, 0]);
+        
+        // Broadcast flag (2 bytes, big-endian with leftmost bit set)
+        assert_eq!(&buffer[10..12], &[0x80, 0x00]);
+        
+        // IP addresses (4 bytes each, all zeros in this test)
+        assert_eq!(&buffer[12..16], &[0, 0, 0, 0]); // client_ip_address
+        assert_eq!(&buffer[16..20], &[0, 0, 0, 0]); // your_ip_address
+        assert_eq!(&buffer[20..24], &[0, 0, 0, 0]); // server_ip_address
+        assert_eq!(&buffer[24..28], &[0, 0, 0, 0]); // gateway_ip_address
+        
+        // Client hardware address (16 bytes total, 6 bytes MAC + 10 bytes padding)
+        assert_eq!(&buffer[28..34], &[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+        assert_eq!(&buffer[34..44], &[0; 10]); // padding
+        
+        // Server name (64 bytes, all zeros)
+        assert_eq!(&buffer[44..108], &[0; 64]);
+        
+        // Boot filename (128 bytes, all zeros)
+        assert_eq!(&buffer[108..236], &[0; 128]);
+        
+        // Magic cookie (4 bytes)
+        assert_eq!(&buffer[236..240], &[99, 130, 83, 99]);
+    }
+
+    #[test]
+    fn test_to_bytes_dhcp_options() {
+        let message = create_test_message();
+        let mut buffer = vec![0u8; 1024];
+        
+        let result = message.to_bytes(&mut buffer, None);
+        assert!(result.is_ok());
+        
+        // Look for DHCP message type option after magic cookie
+        let options_start = 240; // After fixed header + magic cookie
+        
+        // Find DHCP Message Type option (tag 53)
+        let mut found_message_type = false;
+        let mut found_max_message_size = false;
+        let mut pos = options_start;
+        
+        while pos < buffer.len() - 2 {
+            let tag = buffer[pos];
+            if tag == 255 { // End option
+                break;
+            }
+            
+            let length = buffer[pos + 1] as usize;
+            
+            match tag {
+                53 => { // DHCP Message Type
+                    assert_eq!(length, 1);
+                    assert_eq!(buffer[pos + 2], MessageType::DhcpDiscover as u8);
+                    found_message_type = true;
+                }
+                57 => { // DHCP Maximum Message Size
+                    assert_eq!(length, 2);
+                    let max_size = ((buffer[pos + 2] as u16) << 8) | (buffer[pos + 3] as u16);
+                    assert_eq!(max_size, 1500);
+                    found_max_message_size = true;
+                }
+                _ => {
+                    // Skip other options
+                }
+            }
+            
+            pos += 2 + length;
+        }
+        
+        assert!(found_message_type, "DHCP Message Type option not found");
+        assert!(found_max_message_size, "DHCP Max Message Size option not found");
+    }
+
+    #[test]
+    fn test_to_bytes_with_max_size_limit() {
+        let message = create_test_message();
+        let mut buffer = vec![0u8; 1024];
+        
+        // Test with size limit
+        let result = message.to_bytes(&mut buffer, Some(300));
+        assert!(result.is_ok());
+        let bytes_written = result.unwrap();
+        
+        // Should fit within the limit (300 - IP header - UDP header)
+        let effective_limit = 300 - SIZE_HEADER_IP - SIZE_HEADER_UDP;
+        assert!(bytes_written <= effective_limit);
+    }
+
+    #[test]
+    fn test_to_bytes_message_with_ip_addresses() {
+        let mut message = create_test_message();
+        message.client_ip_address = Ipv4Addr::new(192, 168, 1, 100);
+        message.your_ip_address = Ipv4Addr::new(192, 168, 1, 101);
+        message.server_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        message.gateway_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        
+        let mut buffer = vec![0u8; 1024];
+        let result = message.to_bytes(&mut buffer, None);
+        assert!(result.is_ok());
+        
+        // Check IP addresses in the serialized output
+        assert_eq!(&buffer[12..16], &[192, 168, 1, 100]); // client_ip_address
+        assert_eq!(&buffer[16..20], &[192, 168, 1, 101]); // your_ip_address
+        assert_eq!(&buffer[20..24], &[192, 168, 1, 1]);   // server_ip_address
+        assert_eq!(&buffer[24..28], &[192, 168, 1, 1]);   // gateway_ip_address
+    }
+
+
+    #[test]
+    fn test_to_bytes_request_message() {
+        let mut message = create_test_message();
+        message.operation_code = OperationCode::BootReply;
+        message.options.dhcp_message_type = Some(MessageType::DhcpAck);
+        message.options.dhcp_server_id = Some(Ipv4Addr::new(192, 168, 1, 1));
+        message.options.address_time = Some(3600);
+        message.your_ip_address = Ipv4Addr::new(192, 168, 1, 100);
+        
+        let mut buffer = vec![0u8; 1024];
+        let result = message.to_bytes(&mut buffer, None);
+        assert!(result.is_ok());
+        
+        // Verify operation code changed
+        assert_eq!(buffer[0], OperationCode::BootReply as u8);
+        
+        // Verify your_ip_address is set
+        assert_eq!(&buffer[16..20], &[192, 168, 1, 100]);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_roundtrip() {
+        // Create a comprehensive test message with various fields and options
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpRequest);
+        options.dhcp_max_message_size = Some(1500);
+        options.dhcp_server_id = Some(Ipv4Addr::new(192, 168, 1, 1));
+        options.address_request = Some(Ipv4Addr::new(192, 168, 1, 100));
+        options.address_time = Some(3600);
+        options.renewal_time = Some(1800);
+        options.rebinding_time = Some(3150);
+        options.subnet_mask = Some(Ipv4Addr::new(255, 255, 255, 0));
+        options.routers = Some(vec![Ipv4Addr::new(192, 168, 1, 1)]);
+        options.domain_name_servers = Some(vec![
+            Ipv4Addr::new(8, 8, 8, 8), 
+            Ipv4Addr::new(8, 8, 4, 4)
+        ]);
+
+        let original_message = Message {
+            operation_code: OperationCode::BootRequest,
+            hardware_type: HardwareType::Ethernet,
+            hardware_address_length: 6,
+            hardware_options: 0,
+            transaction_id: 0xDEADBEEF,
+            seconds: 42,
+            is_broadcast: true,
+            client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
+            your_ip_address: Ipv4Addr::new(192, 168, 1, 100),
+            server_ip_address: Ipv4Addr::new(192, 168, 1, 1),
+            gateway_ip_address: Ipv4Addr::new(192, 168, 1, 1),
+            client_hardware_address: MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]),
+            server_name: b"test-server.example.com".to_vec(),
+            boot_filename: b"/boot/pxelinux.0".to_vec(),
+            options,
+        };
+
+        // Serialize to bytes
+        let mut buffer = vec![0u8; 1024];
+        let serialize_result = original_message.to_bytes(&mut buffer, None);
+        assert!(serialize_result.is_ok());
+        let bytes_written = serialize_result.unwrap();
+        assert!(bytes_written > 0);
+
+        // Deserialize back from bytes
+        let deserialize_result = Message::from_bytes(&buffer[..bytes_written]);
+        assert!(deserialize_result.is_ok());
+        let deserialized_message = deserialize_result.unwrap();
+
+        // Compare all fields
+        assert_eq!(original_message.operation_code, deserialized_message.operation_code);
+        assert_eq!(original_message.hardware_type, deserialized_message.hardware_type);
+        assert_eq!(original_message.hardware_address_length, deserialized_message.hardware_address_length);
+        assert_eq!(original_message.hardware_options, deserialized_message.hardware_options);
+        assert_eq!(original_message.transaction_id, deserialized_message.transaction_id);
+        assert_eq!(original_message.seconds, deserialized_message.seconds);
+        assert_eq!(original_message.is_broadcast, deserialized_message.is_broadcast);
+        assert_eq!(original_message.client_ip_address, deserialized_message.client_ip_address);
+        assert_eq!(original_message.your_ip_address, deserialized_message.your_ip_address);
+        assert_eq!(original_message.server_ip_address, deserialized_message.server_ip_address);
+        assert_eq!(original_message.gateway_ip_address, deserialized_message.gateway_ip_address);
+        assert_eq!(original_message.client_hardware_address, deserialized_message.client_hardware_address);
+        
+        // Compare server_name and boot_filename (Note: these might be padded with zeros)
+        // We'll compare just the non-zero portions
+        let original_server_name = original_message.server_name.iter()
+            .take_while(|&&b| b != 0).cloned().collect::<Vec<u8>>();
+        let deserialized_server_name = deserialized_message.server_name.iter()
+            .take_while(|&&b| b != 0).cloned().collect::<Vec<u8>>();
+        assert_eq!(original_server_name, deserialized_server_name);
+
+        let original_boot_filename = original_message.boot_filename.iter()
+            .take_while(|&&b| b != 0).cloned().collect::<Vec<u8>>();
+        let deserialized_boot_filename = deserialized_message.boot_filename.iter()
+            .take_while(|&&b| b != 0).cloned().collect::<Vec<u8>>();
+        assert_eq!(original_boot_filename, deserialized_boot_filename);
+
+        // Compare options
+        assert_eq!(original_message.options.dhcp_message_type, deserialized_message.options.dhcp_message_type);
+        assert_eq!(original_message.options.dhcp_max_message_size, deserialized_message.options.dhcp_max_message_size);
+        assert_eq!(original_message.options.dhcp_server_id, deserialized_message.options.dhcp_server_id);
+        assert_eq!(original_message.options.address_request, deserialized_message.options.address_request);
+        assert_eq!(original_message.options.address_time, deserialized_message.options.address_time);
+        assert_eq!(original_message.options.renewal_time, deserialized_message.options.renewal_time);
+        assert_eq!(original_message.options.rebinding_time, deserialized_message.options.rebinding_time);
+        assert_eq!(original_message.options.subnet_mask, deserialized_message.options.subnet_mask);
+        assert_eq!(original_message.options.routers, deserialized_message.options.routers);
+        assert_eq!(original_message.options.domain_name_servers, deserialized_message.options.domain_name_servers);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_minimal_message() {
+        // Test with minimal message (only required fields)
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpDiscover);
+
+        let original_message = Message {
+            operation_code: OperationCode::BootRequest,
+            hardware_type: HardwareType::Ethernet,
+            hardware_address_length: 6,
+            hardware_options: 0,
+            transaction_id: 0x12345678,
+            seconds: 0,
+            is_broadcast: false,
+            client_ip_address: Ipv4Addr::UNSPECIFIED,
+            your_ip_address: Ipv4Addr::UNSPECIFIED,
+            server_ip_address: Ipv4Addr::UNSPECIFIED,
+            gateway_ip_address: Ipv4Addr::UNSPECIFIED,
+            client_hardware_address: MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            server_name: vec![0; 64],
+            boot_filename: vec![0; 128],
+            options,
+        };
+
+        // Serialize to bytes
+        let mut buffer = vec![0u8; 1024];
+        let serialize_result = original_message.to_bytes(&mut buffer, None);
+        assert!(serialize_result.is_ok());
+        let bytes_written = serialize_result.unwrap();
+
+        // Deserialize back from bytes
+        let deserialize_result = Message::from_bytes(&buffer[..bytes_written]);
+        assert!(deserialize_result.is_ok());
+        let deserialized_message = deserialize_result.unwrap();
+
+        // Key fields should match
+        assert_eq!(original_message.operation_code, deserialized_message.operation_code);
+        assert_eq!(original_message.transaction_id, deserialized_message.transaction_id);
+        assert_eq!(original_message.client_hardware_address, deserialized_message.client_hardware_address);
+        assert_eq!(original_message.options.dhcp_message_type, deserialized_message.options.dhcp_message_type);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_broadcast_flag() {
+        // Test that broadcast flag is correctly preserved
+        let mut options = Options::default();
+        options.dhcp_message_type = Some(MessageType::DhcpDiscover);
+
+        let mut original_message = create_test_message();
+        original_message.is_broadcast = true;
+
+        // Serialize to bytes
+        let mut buffer = vec![0u8; 1024];
+        let serialize_result = original_message.to_bytes(&mut buffer, None);
+        assert!(serialize_result.is_ok());
+        let bytes_written = serialize_result.unwrap();
+
+        // Deserialize back from bytes
+        let deserialize_result = Message::from_bytes(&buffer[..bytes_written]);
+        assert!(deserialize_result.is_ok());
+        let deserialized_message = deserialize_result.unwrap();
+
+        // Broadcast flag should be preserved
+        assert_eq!(original_message.is_broadcast, deserialized_message.is_broadcast);
+        assert_eq!(true, deserialized_message.is_broadcast);
+
+        // Test with broadcast = false
+        original_message.is_broadcast = false;
+        let serialize_result = original_message.to_bytes(&mut buffer, None);
+        assert!(serialize_result.is_ok());
+        let bytes_written = serialize_result.unwrap();
+
+        let deserialize_result = Message::from_bytes(&buffer[..bytes_written]);
+        assert!(deserialize_result.is_ok());
+        let deserialized_message = deserialize_result.unwrap();
+
+        assert_eq!(false, deserialized_message.is_broadcast);
+    }
+}

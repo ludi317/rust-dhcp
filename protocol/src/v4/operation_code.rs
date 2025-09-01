@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// DHCP opcode.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum OperationCode {
     Undefined = 0,
     BootRequest,
