@@ -5,8 +5,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
 
 use dhcp_client::{Client, ClientError};
+use dhcp_client::network::get_interface_mac;
 use env_logger;
-use eui48::MacAddress;
 use log::{info, warn};
 use tokio::{select, signal};
 
@@ -17,16 +17,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <interface_mac_address> [server_ip]", args[0]);
-        eprintln!("Example: {} 00:11:22:33:44:55", args[0]);
-        eprintln!("Example: {} 00:11:22:33:44:55 192.168.1.1", args[0]);
+        eprintln!("Usage: {} <interface_name> [server_ip]", args[0]);
+        eprintln!("Example: {} eth0", args[0]);
+        eprintln!("Example: {} wlan0 192.168.1.1", args[0]);
         process::exit(1);
     }
 
-    let client_mac = match args[1].parse::<MacAddress>() {
-        Ok(mac) => mac,
+    let interface_name = &args[1];
+    
+    info!("Getting MAC address for interface: {}", interface_name);
+    let client_mac = match get_interface_mac(interface_name).await {
+        Ok(mac) => {
+            info!("Found MAC address: {}", mac);
+            mac
+        },
         Err(e) => {
-            eprintln!("Invalid MAC address '{}': {}", args[1], e);
+            eprintln!("Failed to get MAC address for interface '{}': {}", interface_name, e);
             process::exit(1);
         }
     };
@@ -42,13 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-
-    info!("Starting DHCP client with MAC address: {}", client_mac);
-    if let Some(server_ip) = server_address {
-        info!("Using server IP: {}", server_ip);
-    } else {
-        info!("Using broadcast for server discovery");
-    }
 
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
