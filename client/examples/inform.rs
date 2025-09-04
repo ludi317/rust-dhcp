@@ -3,7 +3,6 @@
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use eui48::MacAddress;
 use env_logger;
 use log::info;
 
@@ -22,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     };
-    
+
     let assigned_ip = get_interface_ip(interface_name).await?;
     let client_mac = get_interface_mac(interface_name).await?;
     

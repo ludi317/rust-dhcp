@@ -3,9 +3,9 @@
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
-
 use dhcp_client::{Client, ClientError};
-use dhcp_client::network::get_interface_mac;
+use dhcp_client::network::{get_interface_mac};
+use dhcp_client::config::apply_config;
 use env_logger;
 use log::{info, warn};
 use tokio::{select, signal};
@@ -36,12 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
-
     info!("🚀 Starting DHCP client");
 
     let mut client = Client::new(
-        bind_addr,
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68),
         client_mac,
         None, // client_id (will use MAC)
         Some("rust-rfc-dhcp-client".to_string()),
@@ -67,6 +65,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
                     info!("   🌐 DNS: {}", dns);
+                }
+
+                // Apply network configuration
+                if let Err(e) = apply_config(interface_name, &config).await {
+                    warn!("⚠️  Failed to apply network configuration: {}", e);
                 }
 
                 // Display lease information

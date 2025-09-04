@@ -13,6 +13,7 @@ dhcp-protocol = { path = "../protocol" }
 dhcp-framed = { path = "../framed" }
 thiserror = "1.0"
 env_logger = "0.11"
+libc = "0.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 rtnetlink = "0.18.0"
 futures = "0.3.31"

@@ -5,6 +5,7 @@ mod client;
 mod state;
 pub mod utils;
 pub mod network;
+pub mod config;
 
 // Re-export the main types
 pub use self::client::{Client, ClientError};
