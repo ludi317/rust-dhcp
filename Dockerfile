@@ -14,4 +14,4 @@ CMD ["/bin/bash"]
 
 # cd /Users/lrehak/rustprojects/rust-dhcp
 # docker build -t rust-dhcp-dev .
-# docker run --network host -it --rm -v /Users/lrehak/rustprojects/rust-dhcp:/usr/src/rust-dhcp rust-dhcp-dev /bin/bash
+# docker run --cap-add=NET_ADMIN --network host -it --rm -v /Users/lrehak/rustprojects/rust-dhcp:/usr/src/rust-dhcp rust-dhcp-dev /bin/bash
