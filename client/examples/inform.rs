@@ -1,18 +1,30 @@
 //! DHCP INFORM demonstration example
 
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use eui48::MacAddress;
 use env_logger;
 use log::info;
 
-use dhcp_client::{Client, ClientError, utils::get_network_info};
+use dhcp_client::{Client, ClientError, network::{get_interface_ip, get_interface_mac}};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     
-    let (assigned_ip, client_mac) = get_network_info()?;
+    let args: Vec<String> = env::args().collect();
+    let interface_name = match args.get(1) {
+        Some(name) => name,
+        None => {
+            eprintln!("Usage: {} <interface_name>", args[0]);
+            eprintln!("Example: {} eth0", args[0]);
+            std::process::exit(1);
+        }
+    };
+    
+    let assigned_ip = get_interface_ip(interface_name).await?;
+    let client_mac = get_interface_mac(interface_name).await?;
     
     info!("Detected IP: {}", assigned_ip);
     info!("Detected MAC: {}", client_mac);

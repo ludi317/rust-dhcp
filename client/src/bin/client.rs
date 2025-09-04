@@ -17,9 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <interface_name> [server_ip]", args[0]);
+        eprintln!("Usage: {} <interface_name>", args[0]);
         eprintln!("Example: {} eth0", args[0]);
-        eprintln!("Example: {} wlan0 192.168.1.1", args[0]);
         process::exit(1);
     }
 
@@ -35,18 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Failed to get MAC address for interface '{}': {}", interface_name, e);
             process::exit(1);
         }
-    };
-
-    let server_address = if args.len() > 2 {
-        match args[2].parse::<Ipv4Addr>() {
-            Ok(ip) => Some(ip),
-            Err(e) => {
-                eprintln!("Invalid server IP address '{}': {}", args[2], e);
-                process::exit(1);
-            }
-        }
-    } else {
-        None
     };
 
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
