@@ -3,11 +3,11 @@ members = [
     "client",
     "protocol",
     "framed",
+    "arp"
 ]
 
 exclude = [
     "server",
-    "arp",
 ]
 
 resolver = "2"

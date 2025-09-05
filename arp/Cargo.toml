@@ -1,14 +1,20 @@
 [package]
-name = "dhcp-arp"
+name = "arp"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eui48 = "1.1"
+eui48 = "1.0"
+log = "0.4"
+tokio = { version = "1.0", features = ["time", "net", "macros", "rt-multi-thread"] }
+libc = "0.2"
+env_logger = "0.11"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-nix = "0.29"
+rtnetlink = "0.18.0"
+futures = "0.3.31"
+netlink-packet-route = "0.25.1"
 
-[target.'cfg(target_os = "windows")'.dependencies]
-tokio-process = "0.2.2"
+[[example]]
+name = "arp_probe"
+path = "examples/arp_probe.rs"
