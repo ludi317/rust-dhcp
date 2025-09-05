@@ -3,7 +3,7 @@
 use log::{info, warn};
 use crate::network::{add_interface_ip, get_interface_index, get_interface_mac, netmask_to_prefix};
 use arp::{arp_probe, announce_address, ArpProbeResult};
-use crate::Configuration;
+use crate::{Configuration, ClientError};
 
 /// Apply DHCP configuration to the network interface
 pub async fn apply_config(
@@ -26,7 +26,7 @@ pub async fn apply_config(
         },
         ArpProbeResult::InUse => {
             warn!("❌ IP address {} is already in use (detected via ARP)", config.your_ip_address);
-            return Err(format!("IP address {} is already in use - should send DHCPDECLINE", config.your_ip_address).into());
+            return Err(ClientError::IpConflict.into());
         },
         ArpProbeResult::Error(e) => {
             warn!("⚠️  ARP probe failed: {} - proceeding anyway", e);

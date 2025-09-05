@@ -69,7 +69,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Apply network configuration
                 if let Err(e) = apply_config(interface_name, &config).await {
-                    warn!("⚠️  Failed to apply network configuration: {}", e);
+                    // Check if this is an IP conflict error
+                    if let Some(ClientError::IpConflict) = e.downcast_ref::<ClientError>() {
+                        warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
+                        
+                        match client.decline(config.your_ip_address, config.server_ip_address,
+                                           "IP address conflict detected via ARP probe".to_string()).await {
+                            Ok(()) => {
+                                info!("📤 DHCPDECLINE sent successfully");
+                                info!("🔄 Restarting DHCP configuration process...");
+                                continue; // Restart the configuration loop
+                            },
+                            Err(decline_err) => {
+                                warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
+                                continue; // Still restart the configuration loop
+                            }
+                        }
+                    } else {
+                        warn!("⚠️  Failed to apply network configuration: {}", e);
+                    }
                 }
 
                 // Display lease information
