@@ -20,7 +20,7 @@ pub async fn apply_config(
     let our_mac = get_interface_mac(interface_name).await?;
     
     // Perform ARP probe as per RFC 2131
-    match arp_probe(interface_name, config.your_ip_address, our_mac).await {
+    match arp_probe(interface_idx, config.your_ip_address, our_mac).await {
         ArpProbeResult::Available => {
             info!("✅ ARP probe successful - IP address {} is available", config.your_ip_address);
         },
@@ -39,7 +39,7 @@ pub async fn apply_config(
             info!("✅ Successfully assigned IP address to interface");
             
             // Send gratuitous ARP as per RFC 2131
-            if let Err(e) = announce_address(interface_name, config.your_ip_address, our_mac).await {
+            if let Err(e) = announce_address(interface_idx, config.your_ip_address, our_mac).await {
                 warn!("⚠️  Failed to send gratuitous ARP announcement: {}", e);
             }
         }

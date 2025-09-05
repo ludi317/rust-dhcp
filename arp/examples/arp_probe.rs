@@ -4,7 +4,7 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use arp::{arp_probe, get_interface_mac, ArpProbeResult};
+use arp::{arp_probe, get_interface_mac, get_interface_index, ArpProbeResult};
 use env_logger;
 use log::{info, warn};
 
@@ -22,28 +22,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let interface_name = &args[1];
     let target_ip = Ipv4Addr::from_str(&args[2])?;
+    let interface_idx = get_interface_index(interface_name)?;
+    let our_mac = get_interface_mac(interface_name).await?;
 
     info!("🔍 ARP Probe Test");
     info!("   Interface: {}", interface_name);
     info!("   Target IP: {}", target_ip);
 
-    // Get our MAC address
-    info!("Getting MAC address for interface: {}", interface_name);
-    let our_mac = match get_interface_mac(interface_name).await {
-        Ok(mac) => {
-            info!("   Our MAC: {}", mac);
-            mac
-        },
-        Err(e) => {
-            eprintln!("❌ Failed to get MAC address for interface '{}': {}", interface_name, e);
-            std::process::exit(1);
-        }
-    };
-
-    // Perform ARP probe
-    info!("🚀 Starting ARP probe for {}...", target_ip);
-    
-    match arp_probe(interface_name, target_ip, our_mac).await {
+    match arp_probe(interface_idx, target_ip, our_mac).await {
         ArpProbeResult::Available => {
             info!("✅ SUCCESS: IP address {} is AVAILABLE (no ARP response)", target_ip);
             info!("   This IP can be safely used - no device responded to the ARP probe");

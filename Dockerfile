@@ -6,6 +6,7 @@ RUN apt-get update && \
     iproute2 \
     iputils-ping \
     net-tools \
+    tcpdump \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/rust-dhcp
