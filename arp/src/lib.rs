@@ -15,15 +15,19 @@ const ARP_PTYPE_IPV4: u16 = 0x0800;
 const ARP_HLEN_ETHERNET: u8 = 6;
 const ARP_PLEN_IPV4: u8 = 4;
 const ARP_OP_REQUEST: u16 = 1;
-const ARP_OP_REPLY: u16 = 2;
 
 // Packet size constants
 const ETHERNET_HEADER_SIZE: usize = 14;
 const ARP_HEADER_SIZE: usize = 28;
 const MIN_ARP_PACKET_SIZE: usize = ETHERNET_HEADER_SIZE + ARP_HEADER_SIZE; // 42 bytes
 
-// Timeout constants
-const ARP_PROBE_TIMEOUT_SECS: u64 = 2;
+// ARP Probe RFC 5227 constants
+const PROBE_NUM: usize = 3; // Send 3 probe packets
+const PROBE_MIN_WAIT_MS: u64 = 1000; // Wait 1 second between probes
+const PROBE_MAX_WAIT_MS: u64 = 2000; // Wait up to 2 seconds between probes
+const ANNOUNCE_WAIT_MS: u64 = 2000; // Delay 2 seconds before announcing
+const ANNOUNCE_INTERVAL_SECS: u64 = 2; // Time between Announcement packets
+
 
 // Buffer size constants
 const RECV_BUFFER_SIZE: usize = 1024;
@@ -90,7 +94,7 @@ impl ArpPacket {
             opcode: ARP_OP_REQUEST.to_be(),
 
             // ARP data
-            sender_hw: our_mac_bytes, // Our own MAC
+            sender_hw: our_mac_bytes,
             sender_ip: [0, 0, 0, 0],  // 0.0.0.0
             target_hw: [0, 0, 0, 0, 0, 0],
             target_ip: target_ip_bytes,
@@ -112,13 +116,13 @@ impl ArpPacket {
             proto_type: ARP_PTYPE_IPV4.to_be(),
             hw_len: ARP_HLEN_ETHERNET,
             proto_len: ARP_PLEN_IPV4,
-            opcode: ARP_OP_REPLY.to_be(),
+            opcode: ARP_OP_REQUEST.to_be(), // RFC 5227 Section 3 says to use REQUEST
 
             // ARP data - gratuitous ARP announcement
             sender_hw: our_mac_bytes,
-            sender_ip: our_ip_bytes,
-            target_hw: our_mac_bytes, // Our own MAC for gratuitous ARP
-            target_ip: our_ip_bytes,  // Our own IP
+            sender_ip: our_ip_bytes, // Our IP
+            target_hw: our_mac_bytes,
+            target_ip: our_ip_bytes,
         }
     }
 
@@ -187,32 +191,68 @@ impl ArpPacket {
 }
 
 /// Perform ARP probe using raw sockets to check if IP address is already in use
+///
+/// Implements RFC 5227 Address Conflict Detection (ACD)
 pub async fn arp_probe(
     interface_idx: u32,
     target_ip: Ipv4Addr,
     our_mac: MacAddress,
 ) -> ArpProbeResult {
+    use rand::Rng;
+
+    info!(
+        "🔍 Sending ARP probes for {} on interface index {}",
+        target_ip, interface_idx
+    );
+
     // Create ARP probe packet
     let arp_packet = ArpPacket::new_probe(our_mac, target_ip);
 
-    match send_arp_and_listen(interface_idx, &arp_packet, target_ip).await {
-        Ok(received_reply) => {
-            if received_reply {
-                warn!("ARP probe detected {} is already in use", target_ip);
-                ArpProbeResult::InUse
-            } else {
-                debug!("ARP probe completed, address {} is available", target_ip);
-                ArpProbeResult::Available
+    let mut rng = rand::thread_rng();
+    // time to wait listening for a response after sending each packet
+    let timeouts = [
+        rng.gen_range(PROBE_MIN_WAIT_MS..=PROBE_MAX_WAIT_MS),
+        rng.gen_range(PROBE_MIN_WAIT_MS..=PROBE_MAX_WAIT_MS),
+        ANNOUNCE_WAIT_MS,
+    ];
+
+    for probe_num in 1..=PROBE_NUM {
+        info!("📡 Sending ARP probe {}/{} for {}", probe_num, PROBE_NUM, target_ip);
+
+        match send_arp_and_listen(interface_idx, &arp_packet, target_ip, timeouts[probe_num.saturating_sub(1)]).await {
+            Ok(conflict_detected) => {
+                if conflict_detected {
+                    warn!(
+                        "❌ ARP probe {}/{} detected {} is already in use",
+                        probe_num, PROBE_NUM, target_ip
+                    );
+                    return ArpProbeResult::InUse;
+                } else {
+                    debug!(
+                        "✅ ARP probe {}/{} - no response for {}",
+                        probe_num, PROBE_NUM, target_ip
+                    );
+                }
+            }
+            Err(e) => {
+                warn!("⚠️ ARP probe {}/{} failed: {}", probe_num, PROBE_NUM, e);
+                return ArpProbeResult::Error(e.to_string());
             }
         }
-        Err(e) => {
-            warn!("Failed to perform ARP probe: {}", e);
-            ArpProbeResult::Error(e.to_string())
-        }
     }
+
+    info!(
+        "✅ All {} ARP probes completed - address {} is available",
+        PROBE_NUM, target_ip
+    );
+    ArpProbeResult::Available
 }
 
 /// Send gratuitous ARP to announce our new IP address
+/// 
+/// RFC 5227: The host may begin legitimately using the IP address immediately 
+/// after sending the first of the two ARP Announcements; the sending of the 
+/// second ARP Announcement may be completed asynchronously.
 pub async fn announce_address(
     interface_idx: u32,
     our_ip: Ipv4Addr,
@@ -226,8 +266,22 @@ pub async fn announce_address(
     // Create gratuitous ARP packet
     let arp_packet = ArpPacket::new_announcement(our_mac, our_ip);
 
-    // Send gratuitous ARP (no need to listen for replies)
+    // Send first ARP announcement immediately
+    info!("📢 Sending first ARP announcement for {}", our_ip);
     arp_packet.send(interface_idx)?;
+
+    // Send second announcement asynchronously
+    let second_announcement_task = async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(ANNOUNCE_INTERVAL_SECS)).await;
+        info!("📢 Sending second ARP announcement for {}", our_ip);
+        if let Err(e) = arp_packet.send(interface_idx) {
+            warn!("⚠️  Failed to send second ARP announcement: {}", e);
+        } else {
+            info!("✅ Second ARP announcement sent for {}", our_ip);
+        }
+    };
+
+    tokio::spawn(second_announcement_task);
 
     Ok(())
 }
@@ -237,8 +291,8 @@ async fn send_arp_and_listen(
     interface_idx: u32,
     arp_packet: &ArpPacket,
     target_ip: Ipv4Addr,
+    timeout_ms: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-
     // Send ARP packet
     let sock_fd = match arp_packet.send(interface_idx) {
         Ok(value) => value,
@@ -249,8 +303,8 @@ async fn send_arp_and_listen(
 
     // Listen for ARP replies with timeout
     let timeout_result = timeout(
-        Duration::from_secs(ARP_PROBE_TIMEOUT_SECS),
-        listen_for_arp_reply(sock_fd, target_ip),
+        Duration::from_millis(timeout_ms),
+        listen_for_arp_reply(sock_fd, target_ip, arp_packet.sender_hw),
     )
     .await;
 
@@ -282,6 +336,7 @@ async fn send_arp_and_listen(
 async fn listen_for_arp_reply(
     sock_fd: i32,
     target_ip: Ipv4Addr,
+    our_mac: [u8; 6],
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let target_ip_bytes = target_ip.octets();
     let mut buffer = [0u8; RECV_BUFFER_SIZE];
@@ -329,16 +384,27 @@ async fn listen_for_arp_reply(
                 // Parse ARP packet
                 if let Some(arp_reply) = parse_arp_reply(&buffer[..received as usize]) {
                     debug!(
-                        "📨 ARP Reply from {}.{}.{}.{}",
+                        "📨 ARP Reply from {}.{}.{}.{} to {}.{}.{}.{}",
                         arp_reply.sender_ip[0],
                         arp_reply.sender_ip[1],
                         arp_reply.sender_ip[2],
-                        arp_reply.sender_ip[3]
+                        arp_reply.sender_ip[3],
+
+                        arp_reply.target_ip[0],
+                        arp_reply.target_ip[1],
+                        arp_reply.target_ip[2],
+                        arp_reply.target_ip[3]
                     );
 
                     // Check if this is a reply for our target IP
-                    if arp_reply.sender_ip == target_ip_bytes && arp_reply.opcode == ARP_OP_REPLY {
-                        debug!("🎯 This is a reply for our target IP {}!", target_ip);
+                    if arp_reply.sender_ip == target_ip_bytes ||
+                        // or if someone else is probing
+                        (arp_reply.opcode == ARP_OP_REQUEST &&
+                            arp_reply.target_ip == target_ip_bytes &&
+                            arp_reply.sender_ip == [0u8;4] &&
+                            arp_reply.target_hw == [0u8;6] &&
+                            arp_reply.sender_hw != our_mac) {
+                        debug!("🎯 Address conflict detected");
                         return Ok(true); // Address is in use
                     }
                 } else {
@@ -354,9 +420,11 @@ async fn listen_for_arp_reply(
     }
 }
 
-
 struct ArpReply {
+    sender_hw: [u8; 6],
     sender_ip: [u8; 4],
+    target_hw: [u8; 6],
+    target_ip: [u8; 4],
     opcode: u16,
 }
 
@@ -379,8 +447,23 @@ fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
     let opcode = u16::from_be_bytes([arp_data[6], arp_data[7]]);
 
     if hw_type == ARP_HTYPE_ETHERNET && proto_type == ARP_PTYPE_IPV4 {
+        let sender_hw = [
+            arp_data[8], arp_data[9], arp_data[10],
+            arp_data[11], arp_data[12], arp_data[13]
+        ];
         let sender_ip = [arp_data[14], arp_data[15], arp_data[16], arp_data[17]];
-        Some(ArpReply { sender_ip, opcode })
+        let target_hw = [
+            arp_data[18], arp_data[19], arp_data[20],
+            arp_data[21], arp_data[22], arp_data[23]
+        ];
+        let target_ip = [arp_data[24], arp_data[25], arp_data[26], arp_data[27]];
+        Some(ArpReply {
+            sender_hw,
+            sender_ip,
+            target_hw,
+            target_ip,
+            opcode,
+        })
     } else {
         None
     }

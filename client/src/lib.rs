@@ -7,6 +7,8 @@ pub mod utils;
 pub mod network;
 pub mod config;
 
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 // Re-export the main types
 pub use self::client::{Client, ClientError};
 pub use self::state::{DhcpState, LeaseInfo};
@@ -39,7 +41,8 @@ impl Configuration {
         }
 
         Configuration {
-            your_ip_address: response.your_ip_address,
+            // your_ip_address: response.your_ip_address,
+            your_ip_address: Ipv4Addr::from_str("192.168.65.4").unwrap(),
             // Use DHCP server ID from options if available, otherwise fall back to server_ip_address
             server_ip_address: response.options.dhcp_server_id.unwrap_or(response.server_ip_address),
             subnet_mask: response.options.subnet_mask,
