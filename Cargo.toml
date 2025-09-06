@@ -6,8 +6,4 @@ members = [
     "arp"
 ]
 
-exclude = [
-    "server",
-]
-
 resolver = "2"

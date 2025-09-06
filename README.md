@@ -3,8 +3,6 @@
 A Rust implementation of DHCP (Dynamic Host Configuration Protocol) client using async/await.
 DHCP message [de]serialization and message sending taken from this excellent repo: https://github.com/lancastr/rust-dhcp
 
-TODO: Server
-
 ## Features
 
 - ✅ **Complete RFC 2131 Compliance** - Full DHCP state machine with proper transitions
