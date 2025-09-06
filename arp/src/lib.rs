@@ -326,6 +326,7 @@ async fn send_arp_and_listen(
     _interface_idx: u32,
     _arp_packet: &ArpPacket,
     _target_ip: Ipv4Addr,
+    _timeout_ms: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // For non-Linux platforms, we could implement using different raw socket APIs
     // For now, return error to indicate this needs platform-specific implementation
