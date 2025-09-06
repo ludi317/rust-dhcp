@@ -196,7 +196,7 @@ pub async fn arp_probe(interface_idx: u32, target_ip: Ipv4Addr, our_mac: MacAddr
     ];
 
     for probe_num in 1..=PROBE_NUM {
-        info!("📡 Sending ARP probe {}/{} for {}", probe_num, PROBE_NUM, target_ip);
+        debug!("📡 Sending ARP probe {}/{} for {}", probe_num, PROBE_NUM, target_ip);
 
         match send_arp_and_listen(interface_idx, &arp_packet, target_ip, timeouts[probe_num.saturating_sub(1)]).await {
             Ok(conflict_detected) => {
@@ -214,7 +214,7 @@ pub async fn arp_probe(interface_idx: u32, target_ip: Ipv4Addr, our_mac: MacAddr
         }
     }
 
-    info!("✅ All {} ARP probes completed - address {} is available", PROBE_NUM, target_ip);
+    debug!("✅ All {} ARP probes completed - address {} is available", PROBE_NUM, target_ip);
     ArpProbeResult::Available
 }
 
@@ -233,17 +233,17 @@ pub async fn announce_address(interface_idx: u32, our_ip: Ipv4Addr, our_mac: Mac
     let arp_packet = ArpPacket::new_announcement(our_mac, our_ip);
 
     // Send first ARP announcement immediately
-    info!("📢 Sending first ARP announcement for {}", our_ip);
+    debug!("📢 Sending first ARP announcement for {}", our_ip);
     arp_packet.send(interface_idx)?;
 
     // Send second announcement asynchronously
     let second_announcement_task = async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(ANNOUNCE_INTERVAL_SECS)).await;
-        info!("📢 Sending second ARP announcement for {}", our_ip);
+        debug!("📢 Sending second ARP announcement for {}", our_ip);
         if let Err(e) = arp_packet.send(interface_idx) {
             warn!("⚠️  Failed to send second ARP announcement: {}", e);
         } else {
-            info!("✅ Second ARP announcement sent for {}", our_ip);
+            debug!("✅ Second ARP announcement sent for {}", our_ip);
         }
     };
 
