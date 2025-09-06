@@ -4,7 +4,7 @@ use std::env;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use arp::{arp_probe, get_interface_mac, get_interface_index, ArpProbeResult};
+use arp::{arp_probe, get_interface_index, get_interface_mac, ArpProbeResult};
 use env_logger;
 use log::{info, warn};
 

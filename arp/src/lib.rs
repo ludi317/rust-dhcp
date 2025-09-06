@@ -28,7 +28,6 @@ const PROBE_MAX_WAIT_MS: u64 = 2000; // Wait up to 2 seconds between probes
 const ANNOUNCE_WAIT_MS: u64 = 2000; // Delay 2 seconds before announcing
 const ANNOUNCE_INTERVAL_SECS: u64 = 2; // Time between Announcement packets
 
-
 // Buffer size constants
 const RECV_BUFFER_SIZE: usize = 1024;
 
@@ -95,7 +94,7 @@ impl ArpPacket {
 
             // ARP data
             sender_hw: our_mac_bytes,
-            sender_ip: [0, 0, 0, 0],  // 0.0.0.0
+            sender_ip: [0, 0, 0, 0], // 0.0.0.0
             target_hw: [0, 0, 0, 0, 0, 0],
             target_ip: target_ip_bytes,
         }
@@ -127,19 +126,13 @@ impl ArpPacket {
     }
 
     fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self as *const ArpPacket as *const u8,
-                std::mem::size_of::<ArpPacket>(),
-            )
-        }
+        unsafe { std::slice::from_raw_parts(self as *const ArpPacket as *const u8, std::mem::size_of::<ArpPacket>()) }
     }
 
     #[cfg(target_os = "linux")]
     fn send(&self, interface_idx: u32) -> Result<c_int, Box<dyn Error>> {
         // Create raw socket
-        let sock_fd =
-            unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ARP.to_be()) };
+        let sock_fd = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_RAW, libc::ETH_P_ARP.to_be()) };
         if sock_fd < 0 {
             return Err("Failed to create raw socket".into());
         }
@@ -166,14 +159,7 @@ impl ArpPacket {
         }
         let packet_bytes = self.as_bytes();
         // Send ARP probe
-        let sent = unsafe {
-            libc::send(
-                sock_fd,
-                packet_bytes.as_ptr() as *const libc::c_void,
-                packet_bytes.len(),
-                0,
-            )
-        };
+        let sent = unsafe { libc::send(sock_fd, packet_bytes.as_ptr() as *const libc::c_void, packet_bytes.len(), 0) };
 
         if sent < 0 {
             unsafe {
@@ -193,17 +179,10 @@ impl ArpPacket {
 /// Perform ARP probe using raw sockets to check if IP address is already in use
 ///
 /// Implements RFC 5227 Address Conflict Detection (ACD)
-pub async fn arp_probe(
-    interface_idx: u32,
-    target_ip: Ipv4Addr,
-    our_mac: MacAddress,
-) -> ArpProbeResult {
+pub async fn arp_probe(interface_idx: u32, target_ip: Ipv4Addr, our_mac: MacAddress) -> ArpProbeResult {
     use rand::Rng;
 
-    info!(
-        "🔍 Sending ARP probes for {} on interface index {}",
-        target_ip, interface_idx
-    );
+    info!("🔍 Sending ARP probes for {} on interface index {}", target_ip, interface_idx);
 
     // Create ARP probe packet
     let arp_packet = ArpPacket::new_probe(our_mac, target_ip);
@@ -222,16 +201,10 @@ pub async fn arp_probe(
         match send_arp_and_listen(interface_idx, &arp_packet, target_ip, timeouts[probe_num.saturating_sub(1)]).await {
             Ok(conflict_detected) => {
                 if conflict_detected {
-                    warn!(
-                        "❌ ARP probe {}/{} detected {} is already in use",
-                        probe_num, PROBE_NUM, target_ip
-                    );
+                    warn!("❌ ARP probe {}/{} detected {} is already in use", probe_num, PROBE_NUM, target_ip);
                     return ArpProbeResult::InUse;
                 } else {
-                    debug!(
-                        "✅ ARP probe {}/{} - no response for {}",
-                        probe_num, PROBE_NUM, target_ip
-                    );
+                    debug!("✅ ARP probe {}/{} - no response for {}", probe_num, PROBE_NUM, target_ip);
                 }
             }
             Err(e) => {
@@ -241,23 +214,16 @@ pub async fn arp_probe(
         }
     }
 
-    info!(
-        "✅ All {} ARP probes completed - address {} is available",
-        PROBE_NUM, target_ip
-    );
+    info!("✅ All {} ARP probes completed - address {} is available", PROBE_NUM, target_ip);
     ArpProbeResult::Available
 }
 
 /// Send gratuitous ARP to announce our new IP address
-/// 
-/// RFC 5227: The host may begin legitimately using the IP address immediately 
-/// after sending the first of the two ARP Announcements; the sending of the 
+///
+/// RFC 5227: The host may begin legitimately using the IP address immediately
+/// after sending the first of the two ARP Announcements; the sending of the
 /// second ARP Announcement may be completed asynchronously.
-pub async fn announce_address(
-    interface_idx: u32,
-    our_ip: Ipv4Addr,
-    our_mac: MacAddress,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn announce_address(interface_idx: u32, our_ip: Ipv4Addr, our_mac: MacAddress) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "📢 Broadcasting gratuitous ARP to announce {} on interface index {}",
         our_ip, interface_idx
@@ -288,10 +254,7 @@ pub async fn announce_address(
 
 #[cfg(target_os = "linux")]
 async fn send_arp_and_listen(
-    interface_idx: u32,
-    arp_packet: &ArpPacket,
-    target_ip: Ipv4Addr,
-    timeout_ms: u64,
+    interface_idx: u32, arp_packet: &ArpPacket, target_ip: Ipv4Addr, timeout_ms: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Send ARP packet
     let sock_fd = match arp_packet.send(interface_idx) {
@@ -323,10 +286,7 @@ async fn send_arp_and_listen(
 
 #[cfg(not(target_os = "linux"))]
 async fn send_arp_and_listen(
-    _interface_idx: u32,
-    _arp_packet: &ArpPacket,
-    _target_ip: Ipv4Addr,
-    _timeout_ms: u64,
+    _interface_idx: u32, _arp_packet: &ArpPacket, _target_ip: Ipv4Addr, _timeout_ms: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // For non-Linux platforms, we could implement using different raw socket APIs
     // For now, return error to indicate this needs platform-specific implementation
@@ -334,11 +294,7 @@ async fn send_arp_and_listen(
 }
 
 #[cfg(target_os = "linux")]
-async fn listen_for_arp_reply(
-    sock_fd: i32,
-    target_ip: Ipv4Addr,
-    our_mac: [u8; 6],
-) -> Result<bool, Box<dyn std::error::Error>> {
+async fn listen_for_arp_reply(sock_fd: i32, target_ip: Ipv4Addr, our_mac: [u8; 6]) -> Result<bool, Box<dyn std::error::Error>> {
     let target_ip_bytes = target_ip.octets();
     let mut buffer = [0u8; RECV_BUFFER_SIZE];
 
@@ -353,14 +309,7 @@ async fn listen_for_arp_reply(
     }
 
     loop {
-        let received = unsafe {
-            libc::recv(
-                sock_fd,
-                buffer.as_mut_ptr() as *mut libc::c_void,
-                buffer.len(),
-                0,
-            )
-        };
+        let received = unsafe { libc::recv(sock_fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len(), 0) };
 
         if received < 0 {
             let errno = unsafe { *libc::__errno_location() };
@@ -390,7 +339,6 @@ async fn listen_for_arp_reply(
                         arp_reply.sender_ip[1],
                         arp_reply.sender_ip[2],
                         arp_reply.sender_ip[3],
-
                         arp_reply.target_ip[0],
                         arp_reply.target_ip[1],
                         arp_reply.target_ip[2],
@@ -404,7 +352,8 @@ async fn listen_for_arp_reply(
                             arp_reply.target_ip == target_ip_bytes &&
                             arp_reply.sender_ip == [0u8;4] &&
                             arp_reply.target_hw == [0u8;6] &&
-                            arp_reply.sender_hw != our_mac) {
+                            arp_reply.sender_hw != our_mac)
+                    {
                         debug!("🎯 Address conflict detected");
                         return Ok(true); // Address is in use
                     }
@@ -412,21 +361,18 @@ async fn listen_for_arp_reply(
                     debug!("❌ Failed to parse ARP packet");
                 }
             } else {
-                debug!(
-                    "⏭️ Non-ARP packet (ethertype: {:02x}{:02x})",
-                    buffer[12], buffer[13]
-                );
+                debug!("⏭️ Non-ARP packet (ethertype: {:02x}{:02x})", buffer[12], buffer[13]);
             }
         }
     }
 }
 
 struct ArpReply {
+    opcode: u16,
     sender_hw: [u8; 6],
     sender_ip: [u8; 4],
     target_hw: [u8; 6],
     target_ip: [u8; 4],
-    opcode: u16,
 }
 
 fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
@@ -448,22 +394,16 @@ fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
     let opcode = u16::from_be_bytes([arp_data[6], arp_data[7]]);
 
     if hw_type == ARP_HTYPE_ETHERNET && proto_type == ARP_PTYPE_IPV4 {
-        let sender_hw = [
-            arp_data[8], arp_data[9], arp_data[10],
-            arp_data[11], arp_data[12], arp_data[13]
-        ];
+        let sender_hw = [arp_data[8], arp_data[9], arp_data[10], arp_data[11], arp_data[12], arp_data[13]];
         let sender_ip = [arp_data[14], arp_data[15], arp_data[16], arp_data[17]];
-        let target_hw = [
-            arp_data[18], arp_data[19], arp_data[20],
-            arp_data[21], arp_data[22], arp_data[23]
-        ];
+        let target_hw = [arp_data[18], arp_data[19], arp_data[20], arp_data[21], arp_data[22], arp_data[23]];
         let target_ip = [arp_data[24], arp_data[25], arp_data[26], arp_data[27]];
         Some(ArpReply {
+            opcode,
             sender_hw,
             sender_ip,
             target_hw,
             target_ip,
-            opcode,
         })
     } else {
         None
@@ -490,26 +430,17 @@ pub fn get_interface_index(_interface_name: &str) -> Result<u32, Box<dyn std::er
 
 /// Get the MAC address for a given network interface
 #[cfg(target_os = "linux")]
-pub async fn get_interface_mac(
-    interface_name: &str,
-) -> Result<MacAddress, Box<dyn std::error::Error>> {
+pub async fn get_interface_mac(interface_name: &str) -> Result<MacAddress, Box<dyn std::error::Error>> {
     let (connection, handle, _) = new_connection()?;
     tokio::spawn(connection);
 
-    let mut links = handle
-        .link()
-        .get()
-        .match_name(interface_name.to_string())
-        .execute();
+    let mut links = handle.link().get().match_name(interface_name.to_string()).execute();
 
     if let Some(link) = links.try_next().await? {
         // Look for the hardware address attribute in the link attributes
         for attr in link.attributes.iter() {
             if let netlink_packet_route::link::LinkAttribute::Address(address) = attr {
-                let mac_bytes: [u8; 6] = address
-                    .clone()
-                    .try_into()
-                    .map_err(|_| "Invalid MAC address length")?;
+                let mac_bytes: [u8; 6] = address.clone().try_into().map_err(|_| "Invalid MAC address length")?;
                 return Ok(MacAddress::new(mac_bytes));
             }
         }
@@ -520,8 +451,6 @@ pub async fn get_interface_mac(
 }
 
 #[cfg(not(target_os = "linux"))]
-pub async fn get_interface_mac(
-    _interface_name: &str,
-) -> Result<MacAddress, Box<dyn std::error::Error>> {
+pub async fn get_interface_mac(_interface_name: &str) -> Result<MacAddress, Box<dyn std::error::Error>> {
     Err("get_interface_mac not implemented for this platform".into())
 }

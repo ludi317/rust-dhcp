@@ -1,0 +1,10 @@
+# See options:
+# https://rust-lang.github.io/rustfmt/?version=v1.8.0&search=
+edition = "2021"
+
+fn_params_layout = "Compressed"
+#indent_style = "Visual"
+#control_brace_style = "AlwaysSameLine"
+max_width = 140
+#fn_single_line = true
+#short_array_element_width_threshold = 20
