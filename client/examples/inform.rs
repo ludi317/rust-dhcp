@@ -6,12 +6,15 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use env_logger;
 use log::info;
 
-use dhcp_client::{Client, ClientError, network::{get_interface_ip, get_interface_mac}};
+use dhcp_client::{
+    network::{get_interface_ip, get_interface_mac},
+    Client, ClientError,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    
+
     let args: Vec<String> = env::args().collect();
     let interface_name = match args.get(1) {
         Some(name) => name,
@@ -24,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let assigned_ip = get_interface_ip(interface_name).await?;
     let client_mac = get_interface_mac(interface_name).await?;
-    
+
     info!("Detected IP: {}", assigned_ip);
     info!("Detected MAC: {}", client_mac);
 
@@ -33,21 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("📡 DHCP INFORM demonstration");
 
     // Create RFC compliant client
-    let mut client = Client::new(
-        bind_addr,
-        client_mac,
-        None,
-        Some("rust-inform-demo".to_string()),
-        None,
-        None,
-    ).await?;
-
+    let mut client = Client::new(bind_addr, client_mac, None, Some("rust-inform-demo".to_string()), None, None).await?;
 
     // Now use DHCP INFORM to get additional configuration information
     match client.inform(assigned_ip).await {
         Ok(inform_config) => {
             info!("✅ DHCP INFORM successful!");
-            
+
             // Display configuration from INFORM
             info!("📋 Configuration from INFORM:");
             info!("   🏠 Server IP: {}", inform_config.server_ip_address);
@@ -60,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(dns) = inform_config.domain_name_servers.as_ref().and_then(|d| d.first()) {
                 info!("   🌐 DNS: {}", dns);
             }
-
         }
         Err(ClientError::Timeout { .. }) => {
             info!("⏰ DHCP INFORM timed out");

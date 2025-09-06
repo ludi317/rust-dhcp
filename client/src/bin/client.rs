@@ -1,13 +1,13 @@
 //! DHCP client executable
 
+use dhcp_client::config::apply_config;
+use dhcp_client::network::get_interface_mac;
+use dhcp_client::{Client, ClientError};
+use env_logger;
+use log::{info, warn};
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
-use dhcp_client::{Client, ClientError};
-use dhcp_client::network::{get_interface_mac};
-use dhcp_client::config::apply_config;
-use env_logger;
-use log::{info, warn};
 use tokio::{select, signal};
 
 #[tokio::main]
@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let interface_name = &args[1];
-    
+
     info!("Getting MAC address for interface: {}", interface_name);
     let client_mac = match get_interface_mac(interface_name).await {
         Ok(mac) => {
             info!("Found MAC address: {}", mac);
             mac
-        },
+        }
         Err(e) => {
             eprintln!("Failed to get MAC address for interface '{}': {}", interface_name, e);
             process::exit(1);
@@ -72,14 +72,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Check if this is an IP conflict error
                     if let Some(ClientError::IpConflict) = e.downcast_ref::<ClientError>() {
                         warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
-                        
-                        match client.decline(config.your_ip_address, config.server_ip_address,
-                                           "IP address conflict detected via ARP probe".to_string()).await {
+
+                        match client
+                            .decline(
+                                config.your_ip_address,
+                                config.server_ip_address,
+                                "IP address conflict detected via ARP probe".to_string(),
+                            )
+                            .await
+                        {
                             Ok(()) => {
                                 info!("📤 DHCPDECLINE sent successfully");
                                 info!("🔄 Restarting DHCP configuration process...");
                                 continue; // Restart the configuration loop
-                            },
+                            }
                             Err(decline_err) => {
                                 warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
                                 continue; // Still restart the configuration loop

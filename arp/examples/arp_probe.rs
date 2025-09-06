@@ -33,12 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ArpProbeResult::Available => {
             info!("✅ SUCCESS: IP address {} is AVAILABLE (no ARP response)", target_ip);
             info!("   This IP can be safely used - no device responded to the ARP probe");
-        },
+        }
         ArpProbeResult::InUse => {
             warn!("⚠️  CONFLICT: IP address {} is IN USE (ARP response received)", target_ip);
             warn!("   Another device on the network is already using this IP address");
             warn!("   In a real DHCP client, this would trigger sending DHCPDECLINE");
-        },
+        }
         ArpProbeResult::Error(e) => {
             warn!("❌ ERROR: ARP probe failed: {}", e);
             warn!("   This could be due to insufficient privileges, missing interface, etc.");

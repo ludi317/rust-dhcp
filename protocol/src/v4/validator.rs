@@ -44,11 +44,11 @@ impl Message {
         match dhcp_message_type {
             // client generated packets section
             MessageType::DhcpDiscover => {}
-            MessageType::DhcpRequest => if message.client_ip_address.is_unspecified()
-                || message.options.dhcp_server_id.is_some()
-            {
-                must_set_option!(message.options.address_request);
-            },
+            MessageType::DhcpRequest => {
+                if message.client_ip_address.is_unspecified() || message.options.dhcp_server_id.is_some() {
+                    must_set_option!(message.options.address_request);
+                }
+            }
             MessageType::DhcpInform => {}
             MessageType::DhcpRelease => {
                 must_set_option!(message.options.dhcp_server_id);

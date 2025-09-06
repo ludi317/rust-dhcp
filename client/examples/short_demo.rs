@@ -3,11 +3,11 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use eui48::MacAddress;
 use env_logger;
+use eui48::MacAddress;
 use log::{info, warn};
-use tokio::{select, signal};
 use tokio::time::timeout;
+use tokio::{select, signal};
 
 use dhcp_client::{Client, ClientError};
 
@@ -18,14 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]);
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
-    let mut client = Client::new(
-        bind_addr,
-        client_mac,
-        None,
-        Some("rust-demo-client".to_string()),
-        None,
-        None,
-    ).await?;
+    let mut client = Client::new(bind_addr, client_mac, None, Some("rust-demo-client".to_string()), None, None).await?;
 
     info!("🎬 Short RFC client demonstration");
 

@@ -1,13 +1,12 @@
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use eui48::MacAddress;
+use log::{debug, info, trace, warn};
 use tokio::time::{sleep, timeout};
-use log::{info, warn, debug, trace};
 
-use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use dhcp_framed::DhcpFramed;
+use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 
 use crate::builder::MessageBuilder;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
@@ -61,15 +60,11 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        bind_addr: SocketAddr,
-        client_hardware_address: MacAddress,
-        client_id: Option<Vec<u8>>,
-        hostname: Option<String>,
-        server_address: Option<Ipv4Addr>,
-        max_message_size: Option<u16>,
+        bind_addr: SocketAddr, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>, hostname: Option<String>,
+        server_address: Option<Ipv4Addr>, max_message_size: Option<u16>,
     ) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(bind_addr).await?;
-        
+
         let hostname = if hostname.is_none() {
             hostname::get().ok().and_then(|s| s.into_string().ok())
         } else {
@@ -78,12 +73,7 @@ impl Client {
 
         let client_id = client_id.unwrap_or(client_hardware_address.as_bytes().to_vec());
 
-        let builder = MessageBuilder::new(
-            client_hardware_address,
-            client_id,
-            hostname,
-            max_message_size,
-        );
+        let builder = MessageBuilder::new(client_hardware_address, client_id, hostname, max_message_size);
 
         let xid = rand::random();
         let retry_state = RetryState::new();
@@ -120,16 +110,16 @@ impl Client {
     /// Attempt to reuse a previous IP address (INIT-REBOOT process)
     pub async fn init_reboot(&mut self, previous_ip: Ipv4Addr) -> Result<Configuration, ClientError> {
         info!("Starting INIT-REBOOT process for IP: {}", previous_ip);
-        
+
         self.transition_to(DhcpState::InitReboot)?;
         self.transition_to(DhcpState::Rebooting)?;
-        
+
         let ack = self.reboot_phase(previous_ip).await?;
-        
+
         // We're now bound with the previous lease
         self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
-        
+
         Ok(Configuration::from_response(ack))
     }
 
@@ -137,24 +127,24 @@ impl Client {
     pub async fn configure(&mut self) -> Result<Configuration, ClientError> {
         info!("Starting DHCP configuration process");
         let dora_start = Instant::now();
-        
+
         self.transition_to(DhcpState::Init)?;
-        
+
         // Start discovery process
         self.transition_to(DhcpState::Selecting)?;
         let offer = self.discover_phase().await?;
-        
+
         // Request the offered configuration
         self.transition_to(DhcpState::Requesting)?;
         let ack = self.request_phase(offer).await?;
-        
+
         // We're now bound with a valid lease
         self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
-        
+
         let dora_duration = dora_start.elapsed().as_millis();
         info!("DORA sequence completed in {:?} ms", dora_duration);
-        
+
         Ok(Configuration::from_response(ack))
     }
 
@@ -165,9 +155,10 @@ impl Client {
         }
 
         loop {
-            let lease = self.lease.as_ref().ok_or_else(|| {
-                ClientError::Protocol("No lease information in BOUND state".to_string())
-            })?;
+            let lease = self
+                .lease
+                .as_ref()
+                .ok_or_else(|| ClientError::Protocol("No lease information in BOUND state".to_string()))?;
 
             // Check if lease has expired
             if lease.is_expired() {
@@ -233,7 +224,8 @@ impl Client {
                 }
                 _ => {
                     return Err(ClientError::Protocol(format!(
-                        "Invalid state {} for lifecycle management", self.state
+                        "Invalid state {} for lifecycle management",
+                        self.state
                     )));
                 }
             }
@@ -263,13 +255,8 @@ impl Client {
     /// Decline an IP address due to conflict detection
     pub async fn decline(&mut self, conflicted_ip: Ipv4Addr, server_id: Ipv4Addr, reason: String) -> Result<(), ClientError> {
         info!("Declining IP {} due to: {}", conflicted_ip, reason);
-        
-        let decline = self.builder.decline(
-            self.xid,
-            conflicted_ip,
-            server_id,
-            Some(reason),
-        );
+
+        let decline = self.builder.decline(self.xid, conflicted_ip, server_id, Some(reason));
 
         let server_addr = SocketAddr::new(IpAddr::V4(server_id), DHCP_PORT_SERVER);
         self.send_message_to(decline, server_addr).await?;
@@ -285,18 +272,15 @@ impl Client {
     /// Send DHCP INFORM message to get additional configuration
     pub async fn inform(&mut self, client_ip: Ipv4Addr) -> Result<Configuration, ClientError> {
         info!("Sending DHCP INFORM for IP: {}", client_ip);
-        
-        let inform = self.builder.inform(
-            self.xid,
-            client_ip,
-        );
+
+        let inform = self.builder.inform(self.xid, client_ip);
 
         self.send_message(inform).await?;
         info!("Sent DHCP INFORM");
 
         // Wait for ACK response
         let timeout_duration = Duration::from_secs(10);
-        
+
         match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpAck)).await {
             Ok(Ok((_, ack))) => {
                 info!("Received DHCP ACK for INFORM");
@@ -305,7 +289,7 @@ impl Client {
             Ok(Err(e)) => {
                 warn!("DHCP INFORM failed: {}", e);
                 Err(e)
-            },
+            }
             Err(_) => {
                 warn!("INFORM timeout after {:?}", timeout_duration);
                 Err(ClientError::Timeout { state: self.state })
@@ -317,26 +301,26 @@ impl Client {
     /// Implements RFC 2131 section 2.2 requirement for client-side conflict detection
     pub async fn check_ip_conflict(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
         info!("Checking for IP conflict: {}", ip);
-        
+
         // RFC 2131: "the client SHOULD probe the newly received address, e.g., with ARP"
-        
+
         // Method 1: Check if IP is already in ARP table
         // if self.check_arp_table(ip).await? {
         //     warn!("IP {} found in ARP table - conflict detected", ip);
         //     return Ok(true);
         // }
-        
+
         // Method 2: Probe with ping (ICMP echo request)
         // This is more reliable than ARP on macOS as it doesn't require raw sockets
         if self.ping_probe(ip).await? {
             warn!("IP {} responded to ping - conflict detected", ip);
             return Ok(true);
         }
-        
+
         // Method 3: Send gratuitous ARP and check for conflicts
         // Note: This would require raw sockets or additional tools
         // For now, we rely on the above two methods
-        
+
         debug!("No IP conflict detected for {}", ip);
         Ok(false)
     }
@@ -345,23 +329,18 @@ impl Client {
     #[allow(dead_code)]
     async fn check_arp_table(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
         use tokio::process::Command;
-        
+
         debug!("Checking ARP table for {}", ip);
-        
+
         // Use 'arp -n <ip>' to check if IP is in ARP table
-        let output = match Command::new("arp")
-            .arg("-n")
-            .arg(ip.to_string())
-            .output()
-            .await
-        {
+        let output = match Command::new("arp").arg("-n").arg(ip.to_string()).output().await {
             Ok(output) => output,
             Err(e) => {
                 debug!("ARP command failed: {}", e);
                 return Ok(false); // If ARP command fails, assume no conflict
             }
         };
-        
+
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             // If arp command succeeds and returns output, the IP is in the table
@@ -370,7 +349,7 @@ impl Client {
                 return Ok(true);
             }
         }
-        
+
         debug!("No ARP table entry for {}", ip);
         Ok(false)
     }
@@ -379,9 +358,9 @@ impl Client {
     async fn ping_probe(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
         use tokio::process::Command;
         use tokio::time::{timeout, Duration};
-        
+
         debug!("Ping probing {}", ip);
-        
+
         // Use ping with short timeout: 'ping -c 1 -W 1000 <ip>'
         // -c 1: send only 1 packet
         // -W 1000: timeout after 1000ms (1 second)
@@ -392,7 +371,7 @@ impl Client {
             .arg("1000")
             .arg(ip.to_string())
             .output();
-        
+
         // Add our own timeout as extra safety
         let output = match timeout(Duration::from_secs(2), ping_future).await {
             Ok(Ok(output)) => output,
@@ -405,63 +384,62 @@ impl Client {
                 return Ok(false); // Timeout means no response
             }
         };
-        
+
         if output.status.success() {
             debug!("Ping successful for {} - IP is in use", ip);
             return Ok(true);
         }
-        
+
         debug!("Ping failed for {} - IP appears available", ip);
         Ok(false)
     }
-
 
     // === State Machine Management ===
 
     /// Transition to a new state with validation
     fn transition_to(&mut self, new_state: DhcpState) -> Result<(), ClientError> {
         let current_state = self.state;
-        
+
         let valid = match (current_state, new_state) {
             // Initial transitions
             (DhcpState::Init, DhcpState::Init) => true, // reset/retry
             (DhcpState::Init, DhcpState::Selecting) => true,
             (DhcpState::Init, DhcpState::InitReboot) => true,
-            
+
             // Discovery phase
             (DhcpState::Selecting, DhcpState::Requesting) => true,
             (DhcpState::Selecting, DhcpState::Selecting) => true, // retry
-            (DhcpState::Selecting, DhcpState::Init) => true, // restart
-            
+            (DhcpState::Selecting, DhcpState::Init) => true,      // restart
+
             // Request phase
             (DhcpState::Requesting, DhcpState::Bound) => true,
             (DhcpState::Requesting, DhcpState::Requesting) => true, // retry
-            (DhcpState::Requesting, DhcpState::Init) => true, // NAK or timeout
-            (DhcpState::Requesting, DhcpState::Selecting) => true, // restart discovery
-            
+            (DhcpState::Requesting, DhcpState::Init) => true,       // NAK or timeout
+            (DhcpState::Requesting, DhcpState::Selecting) => true,  // restart discovery
+
             // Bound operations
             (DhcpState::Bound, DhcpState::Renewing) => true,
-            (DhcpState::Bound, DhcpState::Init) => true, // release
+            (DhcpState::Bound, DhcpState::Init) => true,  // release
             (DhcpState::Bound, DhcpState::Bound) => true, // refresh
-            
+
             // Renewal phase
-            (DhcpState::Renewing, DhcpState::Bound) => true, // successful renewal
+            (DhcpState::Renewing, DhcpState::Bound) => true,     // successful renewal
             (DhcpState::Renewing, DhcpState::Rebinding) => true, // T2 reached
-            (DhcpState::Renewing, DhcpState::Renewing) => true, // retry
-            (DhcpState::Renewing, DhcpState::Init) => true, // NAK or major failure
-            
+            (DhcpState::Renewing, DhcpState::Renewing) => true,  // retry
+            (DhcpState::Renewing, DhcpState::Init) => true,      // NAK or major failure
+
             // Rebinding phase
-            (DhcpState::Rebinding, DhcpState::Bound) => true, // successful rebind
-            (DhcpState::Rebinding, DhcpState::Init) => true, // lease expired or NAK
+            (DhcpState::Rebinding, DhcpState::Bound) => true,     // successful rebind
+            (DhcpState::Rebinding, DhcpState::Init) => true,      // lease expired or NAK
             (DhcpState::Rebinding, DhcpState::Rebinding) => true, // retry
-            
+
             // Reboot phase
             (DhcpState::InitReboot, DhcpState::Rebooting) => true,
             (DhcpState::InitReboot, DhcpState::Init) => true,
             (DhcpState::Rebooting, DhcpState::Bound) => true,
             (DhcpState::Rebooting, DhcpState::Init) => true,
             (DhcpState::Rebooting, DhcpState::Rebooting) => true, // retry
-            
+
             _ => false,
         };
 
@@ -473,12 +451,12 @@ impl Client {
         }
 
         trace!("State transition: {} -> {}", current_state, new_state);
-        
+
         // Reset retry state on actual state change (not for retry transitions)
         if current_state != new_state {
             self.retry_state.reset();
         }
-        
+
         self.state = new_state;
 
         Ok(())
@@ -491,8 +469,7 @@ impl Client {
         loop {
             // Send DISCOVER
             let discover = self.builder.discover(
-                self.xid,
-                None, // requested IP
+                self.xid, None, // requested IP
                 None,
             );
 
@@ -502,7 +479,7 @@ impl Client {
 
             // Wait for OFFER with timeout
             let timeout_duration = self.retry_state.next_interval();
-            
+
             match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpOffer)).await {
                 Ok(Ok((_, offer))) => {
                     info!("Received DHCP OFFER for {}", offer.your_ip_address);
@@ -526,9 +503,11 @@ impl Client {
 
     /// Request phase - send REQUEST and wait for ACK
     async fn request_phase(&mut self, offer: Message) -> Result<Message, ClientError> {
-        let server_id = offer.options.dhcp_server_id
+        let server_id = offer
+            .options
+            .dhcp_server_id
             .ok_or_else(|| ClientError::Protocol("OFFER missing server ID".to_string()))?;
-        
+
         self.offered_ip = Some(offer.your_ip_address);
 
         loop {
@@ -541,14 +520,17 @@ impl Client {
             );
 
             self.send_message(request).await?;
-            info!("Sent DHCP REQUEST for {} (attempt {})", 
-                  offer.your_ip_address, self.retry_state.attempt + 1);
+            info!(
+                "Sent DHCP REQUEST for {} (attempt {})",
+                offer.your_ip_address,
+                self.retry_state.attempt + 1
+            );
             self.last_request_time = Some(Instant::now());
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
             let timeout_duration = self.retry_state.next_interval();
-            
+
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
                 Ok(Ok(message)) => {
                     match message.validate() {
@@ -609,7 +591,9 @@ impl Client {
 
     /// Renewal phase - send REQUEST to original server
     async fn renew_phase(&mut self) -> Result<Message, ClientError> {
-        let lease = self.lease.clone()
+        let lease = self
+            .lease
+            .clone()
             .ok_or_else(|| ClientError::Protocol("No lease to renew".to_string()))?;
 
         let request = self.builder.request_renew(
@@ -622,8 +606,11 @@ impl Client {
         // Send unicast to original server
         let server_addr = SocketAddr::new(IpAddr::V4(lease.server_id), DHCP_PORT_SERVER);
         self.send_message_to(request, server_addr).await?;
-        info!("Sent DHCP REQUEST (renew) to {} (attempt {})", 
-              lease.server_id, self.retry_state.attempt + 1);
+        info!(
+            "Sent DHCP REQUEST (renew) to {} (attempt {})",
+            lease.server_id,
+            self.retry_state.attempt + 1
+        );
         self.last_request_time = Some(Instant::now());
         self.retry_state.record_attempt();
 
@@ -631,22 +618,20 @@ impl Client {
         let timeout_duration = lease.retry_interval(self.state);
 
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-            Ok(Ok(message)) => {
-                match message.validate() {
-                    Ok(MessageType::DhcpAck) => {
-                        info!("Lease renewal successful");
-                        Ok(message)
-                    }
-                    Ok(MessageType::DhcpNak) => {
-                        warn!("Renewal NAK received, returning to INIT");
-                        Err(ClientError::Nak)
-                    }
-                    _ => {
-                        debug!("Received unexpected message type during renewal");
-                        Err(ClientError::InvalidResponse)
-                    }
+            Ok(Ok(message)) => match message.validate() {
+                Ok(MessageType::DhcpAck) => {
+                    info!("Lease renewal successful");
+                    Ok(message)
                 }
-            }
+                Ok(MessageType::DhcpNak) => {
+                    warn!("Renewal NAK received, returning to INIT");
+                    Err(ClientError::Nak)
+                }
+                _ => {
+                    debug!("Received unexpected message type during renewal");
+                    Err(ClientError::InvalidResponse)
+                }
+            },
             Ok(Err(e)) => {
                 debug!("Renewal failed: {}", e);
                 Err(e)
@@ -656,13 +641,13 @@ impl Client {
                 Err(ClientError::Timeout { state: self.state })
             }
         }
-
-
     }
 
     /// Rebinding phase - send REQUEST to any server
     async fn rebind_phase(&mut self) -> Result<Message, ClientError> {
-        let lease = self.lease.clone()
+        let lease = self
+            .lease
+            .clone()
             .ok_or_else(|| ClientError::Protocol("No lease to rebind".to_string()))?;
 
         let request = self.builder.request_renew(
@@ -673,30 +658,27 @@ impl Client {
         );
 
         self.send_message(request).await?;
-        info!("Sent DHCP REQUEST (rebind) broadcast (attempt {})", 
-              self.retry_state.attempt + 1);
+        info!("Sent DHCP REQUEST (rebind) broadcast (attempt {})", self.retry_state.attempt + 1);
         self.last_request_time = Some(Instant::now());
         self.retry_state.record_attempt();
 
         // Wait for response with lease-specific timeout
         let timeout_duration = lease.retry_interval(self.state);
-        
+
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-            Ok(Ok(message)) => {
-                match message.validate() {
-                    Ok(MessageType::DhcpAck) => {
-                        info!("Lease rebinding successful");
-                        return Ok(message);
-                    }
-                    Ok(MessageType::DhcpNak) => {
-                        warn!("Rebinding NAK received, returning to INIT");
-                        return Err(ClientError::Nak);
-                    }
-                    _ => {
-                        debug!("Received unexpected message type during rebinding");
-                    }
+            Ok(Ok(message)) => match message.validate() {
+                Ok(MessageType::DhcpAck) => {
+                    info!("Lease rebinding successful");
+                    return Ok(message);
                 }
-            }
+                Ok(MessageType::DhcpNak) => {
+                    warn!("Rebinding NAK received, returning to INIT");
+                    return Err(ClientError::Nak);
+                }
+                _ => {
+                    debug!("Received unexpected message type during rebinding");
+                }
+            },
             Ok(Err(e)) => {
                 debug!("Rebinding failed: {}", e);
                 return Err(e);
@@ -720,31 +702,32 @@ impl Client {
             );
 
             self.send_message(request).await?;
-            info!("Sent DHCP REQUEST (init-reboot) for {} (attempt {})", 
-                  previous_ip, self.retry_state.attempt + 1);
+            info!(
+                "Sent DHCP REQUEST (init-reboot) for {} (attempt {})",
+                previous_ip,
+                self.retry_state.attempt + 1
+            );
             self.last_request_time = Some(Instant::now());
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
             let timeout_duration = self.retry_state.next_interval();
-            
+
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-                Ok(Ok(message)) => {
-                    match message.validate() {
-                        Ok(MessageType::DhcpAck) => {
-                            info!("INIT-REBOOT successful for {}", previous_ip);
-                            return Ok(message);
-                        }
-                        Ok(MessageType::DhcpNak) => {
-                            warn!("INIT-REBOOT NAK received for {}, IP no longer valid", previous_ip);
-                            return Err(ClientError::Nak);
-                        }
-                        _ => {
-                            debug!("Received unexpected message type during init-reboot");
-                            continue;
-                        }
+                Ok(Ok(message)) => match message.validate() {
+                    Ok(MessageType::DhcpAck) => {
+                        info!("INIT-REBOOT successful for {}", previous_ip);
+                        return Ok(message);
                     }
-                }
+                    Ok(MessageType::DhcpNak) => {
+                        warn!("INIT-REBOOT NAK received for {}, IP no longer valid", previous_ip);
+                        return Err(ClientError::Nak);
+                    }
+                    _ => {
+                        debug!("Received unexpected message type during init-reboot");
+                        continue;
+                    }
+                },
                 Ok(Err(e)) => {
                     debug!("INIT-REBOOT failed, retrying: {}", e);
                 }
@@ -766,10 +749,14 @@ impl Client {
 
     /// Handle ACK message and update lease information
     fn handle_ack(&mut self, ack: &Message) -> Result<(), ClientError> {
-        let server_id = ack.options.dhcp_server_id
+        let server_id = ack
+            .options
+            .dhcp_server_id
             .ok_or_else(|| ClientError::Protocol("ACK missing server ID".to_string()))?;
-        
-        let lease_time = ack.options.address_time
+
+        let lease_time = ack
+            .options
+            .address_time
             .ok_or_else(|| ClientError::Protocol("ACK missing lease time".to_string()))?;
 
         self.lease = Some(LeaseInfo::new(
@@ -780,8 +767,10 @@ impl Client {
             ack.options.rebinding_time,
         ));
 
-        info!("Lease established: IP={}, Server={}, Duration={}s", 
-              ack.your_ip_address, server_id, lease_time);
+        info!(
+            "Lease established: IP={}, Server={}, Duration={}s",
+            ack.your_ip_address, server_id, lease_time
+        );
 
         Ok(())
     }
@@ -812,8 +801,11 @@ impl Client {
                     Ok((addr, message)) => {
                         // Validate transaction ID
                         if message.transaction_id != self.xid {
-                            trace!("Ignoring message with wrong transaction ID: {} (expected {})", 
-                                  message.transaction_id, self.xid);
+                            trace!(
+                                "Ignoring message with wrong transaction ID: {} (expected {})",
+                                message.transaction_id,
+                                self.xid
+                            );
                             continue;
                         }
 
@@ -858,7 +850,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dhcp_protocol::{Message, MessageType, OperationCode, HardwareType, Options};
+    use dhcp_protocol::{HardwareType, Message, MessageType, OperationCode, Options};
     use eui48::MacAddress;
     use std::time::Duration;
 
@@ -946,47 +938,47 @@ mod tests {
         // Copy the transition logic from the real Client
         fn transition_to(&mut self, new_state: DhcpState) -> Result<(), ClientError> {
             let current_state = self.state;
-            
+
             let valid = match (current_state, new_state) {
                 // Initial transitions
                 (DhcpState::Init, DhcpState::Init) => true,
                 (DhcpState::Init, DhcpState::Selecting) => true,
                 (DhcpState::Init, DhcpState::InitReboot) => true,
-                
+
                 // Discovery phase
                 (DhcpState::Selecting, DhcpState::Requesting) => true,
                 (DhcpState::Selecting, DhcpState::Selecting) => true,
                 (DhcpState::Selecting, DhcpState::Init) => true,
-                
+
                 // Request phase
                 (DhcpState::Requesting, DhcpState::Bound) => true,
                 (DhcpState::Requesting, DhcpState::Requesting) => true,
                 (DhcpState::Requesting, DhcpState::Init) => true,
                 (DhcpState::Requesting, DhcpState::Selecting) => true,
-                
+
                 // Bound operations
                 (DhcpState::Bound, DhcpState::Renewing) => true,
                 (DhcpState::Bound, DhcpState::Init) => true,
                 (DhcpState::Bound, DhcpState::Bound) => true,
-                
+
                 // Renewal phase
                 (DhcpState::Renewing, DhcpState::Bound) => true,
                 (DhcpState::Renewing, DhcpState::Rebinding) => true,
                 (DhcpState::Renewing, DhcpState::Renewing) => true,
                 (DhcpState::Renewing, DhcpState::Init) => true,
-                
+
                 // Rebinding phase
                 (DhcpState::Rebinding, DhcpState::Bound) => true,
                 (DhcpState::Rebinding, DhcpState::Init) => true,
                 (DhcpState::Rebinding, DhcpState::Rebinding) => true,
-                
+
                 // Reboot phase
                 (DhcpState::InitReboot, DhcpState::Rebooting) => true,
                 (DhcpState::InitReboot, DhcpState::Init) => true,
                 (DhcpState::Rebooting, DhcpState::Bound) => true,
                 (DhcpState::Rebooting, DhcpState::Init) => true,
                 (DhcpState::Rebooting, DhcpState::Rebooting) => true,
-                
+
                 _ => false,
             };
 
@@ -1000,7 +992,7 @@ mod tests {
             if current_state != new_state {
                 self.retry_state.reset();
             }
-            
+
             self.state = new_state;
             Ok(())
         }
@@ -1009,22 +1001,22 @@ mod tests {
     #[test]
     fn test_state_transitions() {
         let mut client = MockClient::new();
-        
+
         assert_eq!(client.state, DhcpState::Init);
-        
+
         // Test valid transitions
         assert!(client.transition_to(DhcpState::Selecting).is_ok());
         assert_eq!(client.state, DhcpState::Selecting);
-        
+
         assert!(client.transition_to(DhcpState::Requesting).is_ok());
         assert_eq!(client.state, DhcpState::Requesting);
-        
+
         assert!(client.transition_to(DhcpState::Bound).is_ok());
         assert_eq!(client.state, DhcpState::Bound);
-        
+
         assert!(client.transition_to(DhcpState::Renewing).is_ok());
         assert_eq!(client.state, DhcpState::Renewing);
-        
+
         assert!(client.transition_to(DhcpState::Rebinding).is_ok());
         assert_eq!(client.state, DhcpState::Rebinding);
     }
@@ -1032,13 +1024,13 @@ mod tests {
     #[test]
     fn test_invalid_state_transitions() {
         let mut client = MockClient::new();
-        
+
         // Test invalid transitions
         assert!(matches!(
             client.transition_to(DhcpState::Bound),
             Err(ClientError::InvalidTransition { .. })
         ));
-        
+
         client.transition_to(DhcpState::Selecting).unwrap();
         assert!(matches!(
             client.transition_to(DhcpState::Rebinding),
@@ -1050,9 +1042,9 @@ mod tests {
     fn test_discover_message_creation() {
         let builder = create_message_builder();
         let xid = 0x12345678;
-        
+
         let discover = builder.discover(xid, None, None);
-        
+
         assert_eq!(discover.transaction_id, xid);
         assert_eq!(discover.options.dhcp_message_type, Some(MessageType::DhcpDiscover));
         assert_eq!(discover.is_broadcast, true); // Broadcast flag should be set
@@ -1064,9 +1056,9 @@ mod tests {
         let xid = 0x12345678;
         let requested_ip = Ipv4Addr::new(192, 168, 1, 100);
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        
+
         let request = builder.request_selecting(xid, requested_ip, None, server_ip);
-        
+
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
         assert_eq!(request.options.address_request, Some(requested_ip));
@@ -1078,9 +1070,9 @@ mod tests {
         let builder = create_message_builder();
         let xid = 0x12345678;
         let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
-        
+
         let request = builder.request_renew(xid, false, assigned_ip, None);
-        
+
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
         assert_eq!(request.client_ip_address, assigned_ip);
@@ -1092,9 +1084,9 @@ mod tests {
         let builder = create_message_builder();
         let xid = 0x12345678;
         let previous_ip = Ipv4Addr::new(192, 168, 1, 100);
-        
+
         let request = builder.request_init_reboot(xid, previous_ip, None);
-        
+
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));
         assert_eq!(request.options.address_request, Some(previous_ip));
@@ -1106,12 +1098,12 @@ mod tests {
         let xid = 0x12345678;
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
         let offered_ip = Ipv4Addr::new(192, 168, 1, 100);
-        
+
         // Test OFFER validation
         let offer = create_test_offer(xid, offered_ip, server_ip);
         assert_eq!(offer.validate().unwrap(), MessageType::DhcpOffer);
         assert_eq!(offer.options.dhcp_server_id, Some(server_ip));
-        
+
         // Test ACK validation
         let ack = create_test_ack(xid, offered_ip, server_ip);
         assert_eq!(ack.validate().unwrap(), MessageType::DhcpAck);
@@ -1122,16 +1114,16 @@ mod tests {
     fn test_lease_timing() {
         let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        
+
         // Test with explicit T1/T2 values
         let lease = LeaseInfo::new(
             assigned_ip,
             server_ip,
-            3600, // 1 hour lease
+            3600,       // 1 hour lease
             Some(1800), // T1 = 30 minutes
             Some(3150), // T2 = 52.5 minutes
         );
-        
+
         assert_eq!(lease.t1(), 1800);
         assert_eq!(lease.t2(), 3150);
         assert!(!lease.should_renew());
@@ -1143,7 +1135,7 @@ mod tests {
     fn test_lease_timing_defaults() {
         let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        
+
         // Test lease with default T1/T2 values
         let lease = LeaseInfo::new(
             assigned_ip,
@@ -1152,7 +1144,7 @@ mod tests {
             None, // No T1 - should default to 50%
             None, // No T2 - should default to 87.5%
         );
-        
+
         assert_eq!(lease.t1(), 1800); // 50% of 3600
         assert_eq!(lease.t2(), 3150); // 87.5% of 3600
     }
@@ -1160,21 +1152,21 @@ mod tests {
     #[test]
     fn test_retry_state_exponential_backoff() {
         let mut retry_state = RetryState::new();
-        
+
         assert_eq!(retry_state.attempt, 0);
-        
+
         // Test attempt recording
         retry_state.record_attempt();
         assert_eq!(retry_state.attempt, 1);
-        
+
         // Test exponential backoff
         let interval1 = retry_state.next_interval();
         retry_state.record_attempt();
         let interval2 = retry_state.next_interval();
-        
+
         // Second interval should be longer (with randomization accounted for)
         assert!(interval2 > interval1 / 2);
-        
+
         // Test reset
         retry_state.reset();
         assert_eq!(retry_state.attempt, 0);
@@ -1182,12 +1174,14 @@ mod tests {
 
     #[test]
     fn test_client_error_display() {
-        let error = ClientError::Timeout { state: DhcpState::Selecting };
+        let error = ClientError::Timeout {
+            state: DhcpState::Selecting,
+        };
         assert_eq!(error.to_string(), "Timeout waiting for response in state SELECTING");
-        
-        let error = ClientError::InvalidTransition { 
-            from: DhcpState::Init, 
-            to: DhcpState::Bound 
+
+        let error = ClientError::InvalidTransition {
+            from: DhcpState::Init,
+            to: DhcpState::Bound,
         };
         assert_eq!(error.to_string(), "State transition error: cannot go from INIT to BOUND");
     }
@@ -1196,12 +1190,12 @@ mod tests {
     async fn test_lease_expiry_timing() {
         let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
         let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        
+
         // Create a lease with very short duration for testing
         let lease = LeaseInfo::new(
             assigned_ip,
             server_ip,
-            2, // 2 seconds lease time
+            2,       // 2 seconds lease time
             Some(1), // T1 = 1 second
             Some(1), // T2 = 1 second
         );
@@ -1213,7 +1207,7 @@ mod tests {
 
         // Wait for T1
         tokio::time::sleep(Duration::from_millis(1100)).await;
-        
+
         // Now should be time for renewal and rebinding
         assert!(lease.should_renew());
         assert!(lease.should_rebind());
@@ -1221,7 +1215,7 @@ mod tests {
 
         // Wait for lease expiry
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        
+
         // Now lease should be expired
         assert!(lease.is_expired());
     }
@@ -1229,18 +1223,18 @@ mod tests {
     #[test]
     fn test_retry_randomization() {
         let retry_state = RetryState::new();
-        
+
         // Generate multiple intervals to test randomization
         let mut intervals = Vec::new();
         for _ in 0..10 {
             intervals.push(retry_state.next_interval());
         }
-        
+
         // Not all intervals should be identical due to randomization
         let first_interval = intervals[0];
         let all_same = intervals.iter().all(|&interval| interval == first_interval);
         assert!(!all_same, "Randomization should make some intervals different");
-        
+
         // All intervals should be within reasonable bounds (1.5s to 2.5s for first attempt)
         for interval in intervals {
             assert!(interval.as_millis() >= 1500);
@@ -1251,35 +1245,35 @@ mod tests {
     #[test]
     fn test_complete_state_machine_flow() {
         let mut client = MockClient::new();
-        
+
         // Test full DORA sequence state transitions
         assert_eq!(client.state, DhcpState::Init);
-        
+
         // DISCOVER phase
         client.transition_to(DhcpState::Selecting).unwrap();
         assert_eq!(client.state, DhcpState::Selecting);
-        
-        // REQUEST phase  
+
+        // REQUEST phase
         client.transition_to(DhcpState::Requesting).unwrap();
         assert_eq!(client.state, DhcpState::Requesting);
-        
+
         // BOUND phase
         client.transition_to(DhcpState::Bound).unwrap();
         assert_eq!(client.state, DhcpState::Bound);
-        
+
         // Test renewal cycle
         client.transition_to(DhcpState::Renewing).unwrap();
         assert_eq!(client.state, DhcpState::Renewing);
-        
+
         // Test successful renewal back to BOUND
         client.transition_to(DhcpState::Bound).unwrap();
         assert_eq!(client.state, DhcpState::Bound);
-        
+
         // Test rebinding cycle
         client.transition_to(DhcpState::Renewing).unwrap();
         client.transition_to(DhcpState::Rebinding).unwrap();
         assert_eq!(client.state, DhcpState::Rebinding);
-        
+
         // Test lease expiry - back to INIT
         client.transition_to(DhcpState::Init).unwrap();
         assert_eq!(client.state, DhcpState::Init);
@@ -1288,18 +1282,18 @@ mod tests {
     #[test]
     fn test_init_reboot_state_flow() {
         let mut client = MockClient::new();
-        
+
         // Test INIT-REBOOT sequence
         client.transition_to(DhcpState::InitReboot).unwrap();
         assert_eq!(client.state, DhcpState::InitReboot);
-        
+
         client.transition_to(DhcpState::Rebooting).unwrap();
         assert_eq!(client.state, DhcpState::Rebooting);
-        
+
         // Test successful reboot to BOUND
         client.transition_to(DhcpState::Bound).unwrap();
         assert_eq!(client.state, DhcpState::Bound);
-        
+
         // Test failed reboot back to INIT
         client.transition_to(DhcpState::Init).unwrap();
         client.transition_to(DhcpState::InitReboot).unwrap();

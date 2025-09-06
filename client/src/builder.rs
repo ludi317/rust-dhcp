@@ -20,12 +20,7 @@ pub struct MessageBuilder {
 
 impl MessageBuilder {
     /// Creates a builder with message parameters which will not be changed.
-    pub fn new(
-        client_hardware_address: MacAddress,
-        client_id: Vec<u8>,
-        hostname: Option<String>,
-        max_message_size: Option<u16>,
-    ) -> Self {
+    pub fn new(client_hardware_address: MacAddress, client_id: Vec<u8>, hostname: Option<String>, max_message_size: Option<u16>) -> Self {
         MessageBuilder {
             client_hardware_address,
             client_id,
@@ -35,12 +30,7 @@ impl MessageBuilder {
     }
 
     /// Creates a general `DHCPDISCOVER` message.
-    pub fn discover(
-        &self,
-        transaction_id: u32,
-        address_request: Option<Ipv4Addr>,
-        address_time: Option<u32>,
-    ) -> Message {
+    pub fn discover(&self, transaction_id: u32, address_request: Option<Ipv4Addr>, address_time: Option<u32>) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
 
@@ -75,11 +65,7 @@ impl MessageBuilder {
 
     /// Creates a `DHCPREQUEST` in `SELECTING` state.
     pub fn request_selecting(
-        &self,
-        transaction_id: u32,
-        address_request: Ipv4Addr,
-        address_time: Option<u32>,
-        dhcp_server_id: Ipv4Addr,
+        &self, transaction_id: u32, address_request: Ipv4Addr, address_time: Option<u32>, dhcp_server_id: Ipv4Addr,
     ) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
@@ -115,12 +101,7 @@ impl MessageBuilder {
     }
 
     /// Creates a `DHCPREQUEST` in `INIT-REBOOT` state.
-    pub fn request_init_reboot(
-        &self,
-        transaction_id: u32,
-        address_request: Ipv4Addr,
-        address_time: Option<u32>,
-    ) -> Message {
+    pub fn request_init_reboot(&self, transaction_id: u32, address_request: Ipv4Addr, address_time: Option<u32>) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
 
@@ -155,11 +136,7 @@ impl MessageBuilder {
 
     /// Creates a `DHCPREQUEST` in `BOUND`, `RENEWING` or `REBINDING` state.
     pub fn request_renew(
-        &self,
-        transaction_id: u32,
-        is_broadcast: bool,
-        client_ip_address: Ipv4Addr,
-        address_time: Option<u32>,
+        &self, transaction_id: u32, is_broadcast: bool, client_ip_address: Ipv4Addr, address_time: Option<u32>,
     ) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
@@ -193,11 +170,7 @@ impl MessageBuilder {
     }
 
     /// Creates a general `DHCPINFORM` message.
-    pub fn inform(
-        &self,
-        transaction_id: u32,
-        client_ip_address: Ipv4Addr,
-    ) -> Message {
+    pub fn inform(&self, transaction_id: u32, client_ip_address: Ipv4Addr) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
 
@@ -230,11 +203,7 @@ impl MessageBuilder {
 
     /// Creates a general `DHCPRELEASE` message.
     pub fn release(
-        &self,
-        transaction_id: u32,
-        client_ip_address: Ipv4Addr,
-        dhcp_server_id: Ipv4Addr,
-        dhcp_message: Option<String>,
+        &self, transaction_id: u32, client_ip_address: Ipv4Addr, dhcp_server_id: Ipv4Addr, dhcp_message: Option<String>,
     ) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
@@ -268,11 +237,7 @@ impl MessageBuilder {
 
     /// Creates a general `DHCPDECLINE` message.
     pub fn decline(
-        &self,
-        transaction_id: u32,
-        requested_address: Ipv4Addr,
-        dhcp_server_id: Ipv4Addr,
-        dhcp_message: Option<String>,
+        &self, transaction_id: u32, requested_address: Ipv4Addr, dhcp_server_id: Ipv4Addr, dhcp_message: Option<String>,
     ) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);

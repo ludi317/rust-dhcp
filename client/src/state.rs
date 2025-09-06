@@ -60,11 +60,7 @@ pub struct LeaseInfo {
 impl LeaseInfo {
     /// Create new lease information
     pub fn new(
-        assigned_ip: Ipv4Addr,
-        server_id: Ipv4Addr,
-        lease_time: u32,
-        renewal_time: Option<u32>,
-        rebinding_time: Option<u32>,
+        assigned_ip: Ipv4Addr, server_id: Ipv4Addr, lease_time: u32, renewal_time: Option<u32>, rebinding_time: Option<u32>,
     ) -> Self {
         Self {
             assigned_ip,
@@ -144,12 +140,8 @@ impl LeaseInfo {
     /// 60 seconds, before retransmitting the DHCPREQUEST message."
     pub fn retry_interval(&self, state: DhcpState) -> Duration {
         let remaining = match state {
-            DhcpState::Renewing => {
-                self.time_until_rebinding()
-            }
-            DhcpState::Rebinding => {
-                self.time_until_expiry()
-            }
+            DhcpState::Renewing => self.time_until_rebinding(),
+            DhcpState::Rebinding => self.time_until_expiry(),
             _ => Duration::from_secs(0),
         };
 

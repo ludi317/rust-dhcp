@@ -84,11 +84,7 @@ impl fmt::Display for Message {
         writeln!(f, "{}HEADER{}", "_".repeat(30), "_".repeat(39))?;
         writeln!(f, "{:32} | {}", "Operation code", self.operation_code)?;
         writeln!(f, "{:32} | {}", "Hardware type", self.hardware_type)?;
-        writeln!(
-            f,
-            "{:32} | {}",
-            "Hardware address length", self.hardware_address_length
-        )?;
+        writeln!(f, "{:32} | {}", "Hardware address length", self.hardware_address_length)?;
         writeln!(f, "{:32} | {}", "Hardware options", self.hardware_options)?;
         writeln!(f, "{:32} | {}", "Transaction ID", self.transaction_id)?;
         writeln!(f, "{:32} | {}", "Seconds", self.seconds)?;
@@ -96,28 +92,10 @@ impl fmt::Display for Message {
         writeln!(f, "{:32} | {}", "Client IP address", self.client_ip_address)?;
         writeln!(f, "{:32} | {}", "Your IP address", self.your_ip_address)?;
         writeln!(f, "{:32} | {}", "Server IP address", self.server_ip_address)?;
-        writeln!(
-            f,
-            "{:32} | {}",
-            "Gateway IP address", self.gateway_ip_address
-        )?;
-        writeln!(
-            f,
-            "{:32} | {}",
-            "Client hardware address", self.client_hardware_address
-        )?;
-        writeln!(
-            f,
-            "{:32} | {:?}",
-            "Server name",
-            &self.server_name[0..server_name_last]
-        )?;
-        writeln!(
-            f,
-            "{:32} | {:?}",
-            "Boot filename",
-            &self.boot_filename[0..boot_filename_last]
-        )?;
+        writeln!(f, "{:32} | {}", "Gateway IP address", self.gateway_ip_address)?;
+        writeln!(f, "{:32} | {}", "Client hardware address", self.client_hardware_address)?;
+        writeln!(f, "{:32} | {:?}", "Server name", &self.server_name[0..server_name_last])?;
+        writeln!(f, "{:32} | {:?}", "Boot filename", &self.boot_filename[0..boot_filename_last])?;
 
         writeln!(f, "{}OPTIONS{}", "_".repeat(30), "_".repeat(38))?;
         let mut iter = (OptionTag::SubnetMask as u8)..=(OptionTag::StdaServers as u8);
@@ -198,8 +176,7 @@ impl fmt::Display for Message {
         dbg_opt!(f, self.options.street_talk_servers, iter);
         dbg_opt!(f, self.options.stda_servers, iter);
 
-        let mut iter =
-            (OptionTag::ClasslessStaticRoutes as u8)..=(OptionTag::ClasslessStaticRoutes as u8);
+        let mut iter = (OptionTag::ClasslessStaticRoutes as u8)..=(OptionTag::ClasslessStaticRoutes as u8);
         dbg_opt!(f, self.options.classless_static_routes, iter);
 
         writeln!(f, "{}", "_".repeat(75))?;

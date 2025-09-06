@@ -3,6 +3,4 @@
 
 mod socket;
 
-pub use socket::{
-    DhcpFramed, DhcpSinkItem, DhcpStreamItem, BUFFER_READ_CAPACITY, BUFFER_WRITE_CAPACITY,
-};
+pub use socket::{DhcpFramed, DhcpSinkItem, DhcpStreamItem, BUFFER_READ_CAPACITY, BUFFER_WRITE_CAPACITY};

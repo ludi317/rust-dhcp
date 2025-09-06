@@ -2,10 +2,10 @@
 
 mod builder;
 mod client;
+pub mod config;
+pub mod network;
 mod state;
 pub mod utils;
-pub mod network;
-pub mod config;
 
 use std::net::Ipv4Addr;
 use std::str::FromStr;

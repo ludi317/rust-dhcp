@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{Stream, Sink};
+use futures::{Sink, Stream};
 use tokio::{io, net::UdpSocket};
 
 use dhcp_protocol::*;
@@ -60,7 +60,7 @@ impl Stream for DhcpFramed {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let mut buf = tokio::io::ReadBuf::new(&mut this.buf_read);
-        
+
         match this.socket.poll_recv_from(cx, &mut buf) {
             Poll::Ready(Ok(addr)) => {
                 let amount = buf.filled().len();
@@ -95,7 +95,7 @@ impl Sink<DhcpSinkItem> for DhcpFramed {
         if this.pending.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "Sink not ready for sending - call poll_ready first"
+                "Sink not ready for sending - call poll_ready first",
             ));
         }
 
