@@ -1,10 +1,10 @@
 //! DHCP client executable
 
 use dhcp_client::config::apply_config;
-use dhcp_client::network::get_interface_mac;
+use dhcp_client::network::NetlinkHandle;
 use dhcp_client::{Client, ClientError};
 use env_logger;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
@@ -15,7 +15,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args: Vec<String> = env::args().collect();
-
     if args.len() < 2 {
         eprintln!("Usage: {} <interface_name>", args[0]);
         eprintln!("Example: {} eth0", args[0]);
@@ -23,15 +22,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let interface_name = &args[1];
-
-    info!("Getting MAC address for interface: {}", interface_name);
-    let client_mac = match get_interface_mac(interface_name).await {
-        Ok(mac) => {
-            info!("Found MAC address: {}", mac);
-            mac
+    let netlink_handle = match NetlinkHandle::new(interface_name).await {
+        Ok(handle) => {
+            info!(
+                "Created netlink handle: interface='{}', index={}, mac={}",
+                handle.interface_name,
+                handle.interface_idx,
+                handle.interface_mac
+            );
+            handle
         }
         Err(e) => {
-            eprintln!("Failed to get MAC address for interface '{}': {}", interface_name, e);
+            eprintln!("Failed to create netlink handle: {}", e);
             process::exit(1);
         }
     };
@@ -40,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = Client::new(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68),
-        client_mac,
+        netlink_handle.interface_mac,
         None, // client_id (will use MAC)
         Some("rust-rfc-dhcp-client".to_string()),
         None, // server_address (broadcast discovery)
@@ -68,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Apply network configuration
-                if let Err(e) = apply_config(interface_name, &config).await {
+                if let Err(e) = apply_config(&netlink_handle, &config).await {
                     // Check if this is an IP conflict error
                     if let Some(ClientError::IpConflict) = e.downcast_ref::<ClientError>() {
                         warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");

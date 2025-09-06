@@ -6,6 +6,8 @@ use std::error::Error;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
+#[cfg(target_os = "linux")]
+use libc::c_int;
 
 // Protocol constants
 const BROADCAST_ADDR: [u8; 6] = [0xFF; 6];
@@ -36,11 +38,6 @@ fn mac_to_bytes(mac: MacAddress) -> [u8; 6] {
     [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]]
 }
 
-#[cfg(target_os = "linux")]
-use futures::stream::TryStreamExt;
-use libc::c_int;
-#[cfg(target_os = "linux")]
-use rtnetlink::new_connection;
 /// ARP probe result
 #[derive(Debug, PartialEq)]
 pub enum ArpProbeResult {
@@ -408,49 +405,4 @@ fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
     } else {
         None
     }
-}
-
-/// Get the interface index for a given network interface name
-#[cfg(target_os = "linux")]
-pub fn get_interface_index(interface_name: &str) -> Result<u32, Box<dyn std::error::Error>> {
-    use std::ffi::CString;
-
-    let if_name_c = CString::new(interface_name)?;
-    let if_index = unsafe { libc::if_nametoindex(if_name_c.as_ptr()) };
-    if if_index == 0 {
-        return Err(format!("Interface {} not found", interface_name).into());
-    }
-    Ok(if_index)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn get_interface_index(_interface_name: &str) -> Result<u32, Box<dyn std::error::Error>> {
-    Err("get_interface_index not implemented for this platform".into())
-}
-
-/// Get the MAC address for a given network interface
-#[cfg(target_os = "linux")]
-pub async fn get_interface_mac(interface_name: &str) -> Result<MacAddress, Box<dyn std::error::Error>> {
-    let (connection, handle, _) = new_connection()?;
-    tokio::spawn(connection);
-
-    let mut links = handle.link().get().match_name(interface_name.to_string()).execute();
-
-    if let Some(link) = links.try_next().await? {
-        // Look for the hardware address attribute in the link attributes
-        for attr in link.attributes.iter() {
-            if let netlink_packet_route::link::LinkAttribute::Address(address) = attr {
-                let mac_bytes: [u8; 6] = address.clone().try_into().map_err(|_| "Invalid MAC address length")?;
-                return Ok(MacAddress::new(mac_bytes));
-            }
-        }
-        return Err(format!("No MAC address found for interface {}", interface_name).into());
-    }
-
-    Err(format!("Interface '{}' not found", interface_name).into())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub async fn get_interface_mac(_interface_name: &str) -> Result<MacAddress, Box<dyn std::error::Error>> {
-    Err("get_interface_mac not implemented for this platform".into())
 }

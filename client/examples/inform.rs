@@ -7,7 +7,7 @@ use env_logger;
 use log::info;
 
 use dhcp_client::{
-    network::{get_interface_ip, get_interface_mac},
+    network::NetlinkHandle,
     Client, ClientError,
 };
 
@@ -25,8 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let assigned_ip = get_interface_ip(interface_name).await?;
-    let client_mac = get_interface_mac(interface_name).await?;
+    let network_handle = NetlinkHandle::new(interface_name).await?;
+    let assigned_ip = network_handle.get_interface_ip().await?;
+    let client_mac = network_handle.interface_mac;
 
     info!("Detected IP: {}", assigned_ip);
     info!("Detected MAC: {}", client_mac);
