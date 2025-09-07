@@ -55,6 +55,10 @@ pub struct LeaseInfo {
     pub renewal_time: Option<u32>,
     /// Time to start rebinding (T2) in seconds from lease start  
     pub rebinding_time: Option<u32>,
+    // /// Time to start renewal (T1) in seconds from lease start
+    // pub t1: u32,
+    // /// Time to start rebinding (T2) in seconds from lease start
+    // pub t2: u32
 }
 
 impl LeaseInfo {

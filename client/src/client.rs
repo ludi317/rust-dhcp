@@ -2,15 +2,16 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use eui48::MacAddress;
-use log::{debug, info, trace, warn};
+use ipnetwork::Ipv4Network;
+use log::{debug, error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
 use dhcp_framed::DhcpFramed;
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 
 use crate::builder::MessageBuilder;
+use crate::config::Configuration;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
-use crate::Configuration;
 
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
@@ -31,8 +32,10 @@ pub enum ClientError {
     Nak,
     #[error("IP address conflict detected")]
     IpConflict,
-    #[error("ARP check failed: {0}")]
-    ArpCheck(String),
+    #[error("Unexpected IP address. ACK gave {acked} but we were offered {offered}")]
+    MismatchedIPAddress { acked: Ipv4Addr, offered: Ipv4Addr },
+    #[error("Lease is invalid")]
+    InvalidLease,
 }
 
 pub struct Client {
@@ -117,8 +120,8 @@ impl Client {
         let ack = self.reboot_phase(previous_ip).await?;
 
         // We're now bound with the previous lease
-        self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
+        self.transition_to(DhcpState::Bound)?;
 
         Ok(Configuration::from_response(ack))
     }
@@ -139,8 +142,8 @@ impl Client {
         let ack = self.request_phase(offer).await?;
 
         // We're now bound with a valid lease
-        self.transition_to(DhcpState::Bound)?;
         self.handle_ack(&ack)?;
+        self.transition_to(DhcpState::Bound)?;
 
         let dora_duration = dora_start.elapsed().as_millis();
         info!("DORA sequence completed in {:?} ms", dora_duration);
@@ -191,34 +194,43 @@ impl Client {
                 DhcpState::Renewing => {
                     // Try to renew with original server
                     match self.renew_phase().await {
-                        Ok(ack) => {
-                            self.transition_to(DhcpState::Bound)?;
-                            self.handle_ack(&ack)?;
-                        }
+                        Ok(ack) => match self.handle_ack(&ack) {
+                            Ok(()) => {
+                                info!("Lease rebound successfully");
+                                self.transition_to(DhcpState::Bound)?;
+                            }
+                            Err(e) => {
+                                warn!("Lease invalid, will retry: {:?}", e);
+                            }
+                        },
                         Err(ClientError::Timeout { .. }) => {
                             // Continue in RENEWING state, will check for T2 on next iteration
-                            debug!("Renewal attempt timed out, will retry");
+                            warn!("Renewal attempt timed out, will retry");
                         }
                         Err(e) => {
                             // Continue
-                            debug!("Renewing failed, will retry: {:?}", e);
+                            warn!("Renewing failed, will retry: {:?}", e);
                         }
                     }
                 }
                 DhcpState::Rebinding => {
                     // Try to rebind with any server
                     match self.rebind_phase().await {
-                        Ok(ack) => {
-                            info!("Lease rebound successfully");
-                            self.transition_to(DhcpState::Bound)?;
-                            self.handle_ack(&ack)?;
-                        }
+                        Ok(ack) => match self.handle_ack(&ack) {
+                            Ok(()) => {
+                                info!("Lease rebound successfully");
+                                self.transition_to(DhcpState::Bound)?;
+                            }
+                            Err(e) => {
+                                warn!("Lease invalid, will retry: {:?}", e);
+                            }
+                        },
                         Err(ClientError::Timeout { .. }) => {
                             // Continue in REBINDING state, will check for expiry on next iteration
-                            debug!("Rebinding attempt timed out, will retry");
+                            warn!("Rebinding attempt timed out, will retry");
                         }
                         Err(e) => {
-                            debug!("Rebinding failed, will retry: {:?}", e);
+                            warn!("Rebinding failed, will retry: {:?}", e);
                         }
                     }
                 }
@@ -406,11 +418,6 @@ impl Client {
 
     /// Request phase - send REQUEST and wait for ACK
     async fn request_phase(&mut self, offer: Message) -> Result<Message, ClientError> {
-        let server_id = offer
-            .options
-            .dhcp_server_id
-            .ok_or_else(|| ClientError::Protocol("OFFER missing server ID".to_string()))?;
-
         self.offered_ip = Some(offer.your_ip_address);
 
         loop {
@@ -419,7 +426,7 @@ impl Client {
                 self.xid,
                 offer.your_ip_address,
                 None, // lease time
-                server_id,
+                offer.options.dhcp_server_id.unwrap(),
             );
 
             self.send_message(request).await?;
@@ -435,22 +442,20 @@ impl Client {
             let timeout_duration = self.retry_state.next_interval();
 
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-                Ok(Ok(message)) => {
-                    match message.validate() {
-                        Ok(MessageType::DhcpAck) => {
-                            info!("Received DHCP ACK");
-                            return Ok(message);
-                        }
-                        Ok(MessageType::DhcpNak) => {
-                            warn!("Received DHCP NAK, returning to INIT");
-                            return Err(ClientError::Nak);
-                        }
-                        _ => {
-                            debug!("Received unexpected message type, ignoring");
-                            continue;
-                        }
+                Ok(Ok(message)) => match message.validate() {
+                    Ok(MessageType::DhcpAck) => {
+                        info!("Received DHCP ACK");
+                        return Ok(message);
                     }
-                }
+                    Ok(MessageType::DhcpNak) => {
+                        warn!("Received DHCP NAK, returning to INIT");
+                        return Err(ClientError::Nak);
+                    }
+                    _ => {
+                        debug!("Received unexpected message type, ignoring");
+                        continue;
+                    }
+                },
                 Ok(Err(e)) => {
                     debug!("REQUEST failed, retrying: {}", e);
                 }
@@ -628,15 +633,66 @@ impl Client {
 
     /// Handle ACK message and update lease information
     fn handle_ack(&mut self, ack: &Message) -> Result<(), ClientError> {
-        let server_id = ack
-            .options
-            .dhcp_server_id
-            .ok_or_else(|| ClientError::Protocol("ACK missing server ID".to_string()))?;
+        let server_id = ack.options.dhcp_server_id.unwrap();
 
-        let lease_time = ack
-            .options
-            .address_time
-            .ok_or_else(|| ClientError::Protocol("ACK missing lease time".to_string()))?;
+        // validate config
+
+        // earlier offered ip must match acked ip
+        if let Some(offered_ip) = self.offered_ip {
+            if offered_ip != ack.your_ip_address {
+                return Err(ClientError::MismatchedIPAddress {
+                    acked: ack.your_ip_address,
+                    offered: offered_ip,
+                });
+            }
+        }
+
+        // your_ip_address must be unicast
+        if ack.your_ip_address.is_unspecified()
+            || ack.your_ip_address.is_multicast()
+            || ack.your_ip_address.is_broadcast()
+            || ack.your_ip_address.is_loopback()
+        {
+            error!("ACK contains invalid 'your_ip_address'");
+            return Err(ClientError::InvalidLease);
+        }
+
+        if ack.your_ip_address.is_link_local() {
+            warn!("IP Address in ACK from {} is a link-local unicast IP: {}", server_id, ack.your_ip_address);
+        }
+
+        let lease_time = ack.options.address_time.unwrap();
+        let renewal_time = ack.options.renewal_time.unwrap_or(lease_time / 2);
+        let rebinding_time = ack.options.rebinding_time.unwrap_or(lease_time * 7 / 8);
+
+        let subnet = match ack.options.subnet_mask {
+            Some(mask) => {
+                let bits = u32::from(mask);
+                let mask = bits.leading_ones();
+                if mask > 0 && mask < 32 && mask + bits.trailing_zeros() == 32 {
+                    mask
+                } else {
+                    error!("ACK contains invalid 'subnet_mask': {}", mask);
+                    return Err(ClientError::InvalidLease);
+                }
+            }
+            None => {
+                warn!("ACK from {} lacks subnet mask, using default class-based mask", server_id);
+                let ip_bytes = ack.your_ip_address.octets();
+                match ip_bytes[0] {
+                    0..=127 => 8,
+                    128..=191 => 16,
+                    _ => 24,
+                }
+            }
+        };
+
+        // classless static routes
+        // let routes =
+
+
+
+        // apply config
 
         self.lease = Some(LeaseInfo::new(
             ack.your_ip_address,

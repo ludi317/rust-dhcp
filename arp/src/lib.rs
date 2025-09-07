@@ -6,7 +6,6 @@ use std::error::Error;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
-#[cfg(target_os = "linux")]
 use libc::c_int;
 
 // Protocol constants
