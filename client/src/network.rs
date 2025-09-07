@@ -2,14 +2,14 @@
 
 use eui48::MacAddress;
 use std::net::Ipv4Addr;
-
 #[cfg(target_os = "linux")]
 use {
     futures::stream::TryStreamExt,
     netlink_packet_route::link::LinkFlags,
     rtnetlink::LinkUnspec,
     rtnetlink::{new_connection, Handle},
-    std::net::IpAddr
+    std::net::IpAddr,
+    rtnetlink::RouteMessageBuilder
 };
 
 #[cfg(target_os = "linux")]
@@ -26,20 +26,20 @@ impl NetlinkHandle {
         let (connection, handle, _) = new_connection()?;
         tokio::spawn(connection);
 
-        let interface_index;
+        let interface_idx;
         let mut interface_mac = MacAddress::nil();
 
         // Get interface index immediately when creating the handle
         let mut links = handle.link().get().match_name(interface_name.to_string()).execute();
         if let Some(link) = links.try_next().await? {
-            interface_index = link.header.index;
+            interface_idx = link.header.index;
 
             // Check if interface is already up
             if (link.header.flags & LinkFlags::Up) != LinkFlags::Up {
                 // Interface is down, bring it up
                 handle
                     .link()
-                    .set(LinkUnspec::new_with_index(interface_index).up().build())
+                    .set(LinkUnspec::new_with_index(interface_idx).up().build())
                     .execute()
                     .await?;
             }
@@ -59,7 +59,7 @@ impl NetlinkHandle {
         Ok(NetlinkHandle {
             handle,
             interface_name: interface_name.to_string(),
-            interface_idx: interface_index,
+            interface_idx: interface_idx,
             interface_mac,
         })
     }
@@ -88,12 +88,21 @@ impl NetlinkHandle {
             .await?;
         Ok(())
     }
+
+    pub async fn replace_default_route(&self, gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
+        // let route = RouteMessageBuilder::<Ipv4Addr>::new()
+        //     .destination_prefix(dest.ip(), dest.prefix())
+        //     .gateway(gateway)
+        //     .build();
+        // self.handle.route().add(route).replace().execute().await?;
+        Ok(())
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
 pub struct NetlinkHandle {
     pub interface_name: String,
-    pub interface_index: u32,
+    pub interface_idx: u32,
     pub interface_mac: MacAddress,
 }
 
@@ -184,6 +193,10 @@ impl NetlinkHandle {
         }
 
         Ok(())
+    }
+
+    pub async fn replace_default_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
+        Err("replace_default_route not implemented for this platform".into())
     }
 }
 
