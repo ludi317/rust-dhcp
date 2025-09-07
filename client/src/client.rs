@@ -297,103 +297,6 @@ impl Client {
         }
     }
 
-    /// Check for IP conflicts using ARP and ICMP probing (macOS implementation)
-    /// Implements RFC 2131 section 2.2 requirement for client-side conflict detection
-    pub async fn check_ip_conflict(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
-        info!("Checking for IP conflict: {}", ip);
-
-        // RFC 2131: "the client SHOULD probe the newly received address, e.g., with ARP"
-
-        // Method 1: Check if IP is already in ARP table
-        // if self.check_arp_table(ip).await? {
-        //     warn!("IP {} found in ARP table - conflict detected", ip);
-        //     return Ok(true);
-        // }
-
-        // Method 2: Probe with ping (ICMP echo request)
-        // This is more reliable than ARP on macOS as it doesn't require raw sockets
-        if self.ping_probe(ip).await? {
-            warn!("IP {} responded to ping - conflict detected", ip);
-            return Ok(true);
-        }
-
-        // Method 3: Send gratuitous ARP and check for conflicts
-        // Note: This would require raw sockets or additional tools
-        // For now, we rely on the above two methods
-
-        debug!("No IP conflict detected for {}", ip);
-        Ok(false)
-    }
-
-    /// Check if IP address exists in system ARP table
-    #[allow(dead_code)]
-    async fn check_arp_table(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
-        use tokio::process::Command;
-
-        debug!("Checking ARP table for {}", ip);
-
-        // Use 'arp -n <ip>' to check if IP is in ARP table
-        let output = match Command::new("arp").arg("-n").arg(ip.to_string()).output().await {
-            Ok(output) => output,
-            Err(e) => {
-                debug!("ARP command failed: {}", e);
-                return Ok(false); // If ARP command fails, assume no conflict
-            }
-        };
-
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // If arp command succeeds and returns output, the IP is in the table
-            if !stdout.trim().is_empty() && !stdout.contains("no entry") {
-                debug!("ARP table entry found for {}: {}", ip, stdout.trim());
-                return Ok(true);
-            }
-        }
-
-        debug!("No ARP table entry for {}", ip);
-        Ok(false)
-    }
-
-    /// Probe IP address with ICMP ping
-    async fn ping_probe(&self, ip: Ipv4Addr) -> Result<bool, ClientError> {
-        use tokio::process::Command;
-        use tokio::time::{timeout, Duration};
-
-        debug!("Ping probing {}", ip);
-
-        // Use ping with short timeout: 'ping -c 1 -W 1000 <ip>'
-        // -c 1: send only 1 packet
-        // -W 1000: timeout after 1000ms (1 second)
-        let ping_future = Command::new("ping")
-            .arg("-c")
-            .arg("1")
-            .arg("-W")
-            .arg("1000")
-            .arg(ip.to_string())
-            .output();
-
-        // Add our own timeout as extra safety
-        let output = match timeout(Duration::from_secs(2), ping_future).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                debug!("Ping command failed: {}", e);
-                return Ok(false); // If ping fails, assume no conflict
-            }
-            Err(_) => {
-                debug!("Ping timeout for {}", ip);
-                return Ok(false); // Timeout means no response
-            }
-        };
-
-        if output.status.success() {
-            debug!("Ping successful for {} - IP is in use", ip);
-            return Ok(true);
-        }
-
-        debug!("Ping failed for {} - IP appears available", ip);
-        Ok(false)
-    }
-
     // === State Machine Management ===
 
     /// Transition to a new state with validation
@@ -537,30 +440,6 @@ impl Client {
                         Ok(MessageType::DhcpAck) => {
                             info!("Received DHCP ACK");
                             return Ok(message);
-                            /*
-                            RFC 2131 section 3.1.5
-                            // Check for IP conflicts before accepting the lease
-                            let assigned_ip = message.your_ip_address;
-                            match self.check_ip_conflict(assigned_ip).await {
-                                Ok(true) => {
-                                    // IP conflict detected, decline the address
-                                    let server_id = message.options.dhcp_server_id
-                                        .ok_or_else(|| ClientError::Protocol("ACK missing server ID".to_string()))?;
-
-                                    warn!("IP conflict detected for {}, sending DECLINE", assigned_ip);
-                                    self.decline(assigned_ip, server_id, "ARP conflict detected".to_string()).await?;
-                                    return Err(ClientError::IpConflict);
-                                }
-                                Ok(false) => {
-                                    // No conflict, accept the lease
-                                    return Ok(message);
-                                }
-                                Err(e) => {
-                                    warn!("ARP check failed for {}: {}, accepting lease anyway", assigned_ip, e);
-                                    return Ok(message);
-                                }
-                            }
-                             */
                         }
                         Ok(MessageType::DhcpNak) => {
                             warn!("Received DHCP NAK, returning to INIT");
