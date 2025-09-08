@@ -230,16 +230,25 @@ pub async fn announce_address(interface_idx: u32, our_ip: Ipv4Addr, our_mac: Mac
 
     // Send first ARP announcement immediately
     debug!("📢 Sending first ARP announcement for {}", our_ip);
-    arp_packet.send(interface_idx)?;
+    let sock_fd = arp_packet.send(interface_idx)?;
+    unsafe {
+        libc::close(sock_fd);
+    }
 
     // Send second announcement asynchronously
     let second_announcement_task = async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(ANNOUNCE_INTERVAL_SECS)).await;
         debug!("📢 Sending second ARP announcement for {}", our_ip);
-        if let Err(e) = arp_packet.send(interface_idx) {
-            warn!("⚠️  Failed to send second ARP announcement: {}", e);
-        } else {
-            debug!("✅ Second ARP announcement sent for {}", our_ip);
+        match arp_packet.send(interface_idx) {
+            Ok(sock_fd) => {
+                unsafe {
+                    libc::close(sock_fd);
+                }
+                debug!("✅ Second ARP announcement sent for {}", our_ip);
+            }
+            Err(e) => {
+                warn!("⚠️  Failed to send second ARP announcement: {}", e);
+            }
         }
     };
 
