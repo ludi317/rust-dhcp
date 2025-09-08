@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Display lease information
                 if let Some(lease) = client.lease() {
                     info!("📋 Lease Information:");
-                    info!("   ⏰ Lease Duration: {}s", lease.lease_duration);
+                    info!("   ⏰ Lease Duration: {}s", lease.lease_time);
                     info!("   ⏰ T1 (Renewal): {}s", lease.t1());
                     info!("   ⏰ T2 (Rebinding): {}s", lease.t2());
                 }

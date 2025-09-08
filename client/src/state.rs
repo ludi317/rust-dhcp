@@ -50,48 +50,58 @@ pub struct LeaseInfo {
     /// When the lease was acquired
     pub lease_start: Instant,
     /// Total lease duration in seconds
-    pub lease_duration: u32,
+    pub lease_time: u32,
     /// Time to start renewal (T1) in seconds from lease start
-    pub renewal_time: Option<u32>,
+    pub renewal_time: u32,
     /// Time to start rebinding (T2) in seconds from lease start  
-    pub rebinding_time: Option<u32>,
-    // /// Time to start renewal (T1) in seconds from lease start
-    // pub t1: u32,
-    // /// Time to start rebinding (T2) in seconds from lease start
-    // pub t2: u32
+    pub rebinding_time: u32,
+    /// DNS servers provided by DHCP
+    pub dns_servers: Option<Vec<Ipv4Addr>>,
+    /// Domain name provided by DHCP
+    pub domain_name: Option<String>,
+    /// NTP servers provided by DHCP
+    pub ntp_servers: Option<Vec<Ipv4Addr>>,
 }
 
 impl LeaseInfo {
     /// Create new lease information
     pub fn new(
-        assigned_ip: Ipv4Addr, server_id: Ipv4Addr, lease_time: u32, renewal_time: Option<u32>, rebinding_time: Option<u32>,
+        assigned_ip: Ipv4Addr, 
+        server_id: Ipv4Addr, 
+        lease_time: u32, 
+        renewal_time: u32, 
+        rebinding_time: u32,
+        dns_servers: Option<Vec<Ipv4Addr>>,
+        domain_name: Option<String>,
+        ntp_servers: Option<Vec<Ipv4Addr>>,
     ) -> Self {
         Self {
             assigned_ip,
             server_id,
             lease_start: Instant::now(),
-            lease_duration: lease_time,
+            lease_time,
             renewal_time,
             rebinding_time,
+            dns_servers,
+            domain_name,
+            ntp_servers,
         }
     }
 
     /// Get the T1 time (when to start renewal)
-    /// RFC 2131: defaults to 0.5 * lease_time if not provided
     pub fn t1(&self) -> u32 {
-        self.renewal_time.unwrap_or(self.lease_duration / 2)
+        self.renewal_time
     }
 
     /// Get the T2 time (when to start rebinding)  
-    /// RFC 2131: defaults to 0.875 * lease_time if not provided
     pub fn t2(&self) -> u32 {
-        self.rebinding_time.unwrap_or(self.lease_duration * 7 / 8)
+        self.rebinding_time
     }
 
     /// Time until renewal should start (T1)
     pub fn time_until_renewal(&self) -> Duration {
         let elapsed = self.lease_start.elapsed().as_secs() as u32;
-        let t1 = self.t1();
+        let t1 = self.renewal_time;
         if elapsed >= t1 {
             Duration::from_secs(0)
         } else {
@@ -102,7 +112,7 @@ impl LeaseInfo {
     /// Time until rebinding should start (T2)
     pub fn time_until_rebinding(&self) -> Duration {
         let elapsed = self.lease_start.elapsed().as_secs() as u32;
-        let t2 = self.t2();
+        let t2 = self.rebinding_time;
         if elapsed >= t2 {
             Duration::from_secs(0)
         } else {
@@ -113,10 +123,10 @@ impl LeaseInfo {
     /// Time until lease expires
     pub fn time_until_expiry(&self) -> Duration {
         let elapsed = self.lease_start.elapsed().as_secs() as u32;
-        if elapsed >= self.lease_duration {
+        if elapsed >= self.lease_time {
             Duration::from_secs(0)
         } else {
-            Duration::from_secs((self.lease_duration - elapsed) as u64)
+            Duration::from_secs((self.lease_time - elapsed) as u64)
         }
     }
 

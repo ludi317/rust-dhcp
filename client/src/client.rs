@@ -120,7 +120,7 @@ impl Client {
         let ack = self.reboot_phase(previous_ip).await?;
 
         // We're now bound with the previous lease
-        self.handle_ack(&ack)?;
+        self.handle_ack(&ack).await?;
         self.transition_to(DhcpState::Bound)?;
 
         Ok(Configuration::from_response(ack))
@@ -142,7 +142,7 @@ impl Client {
         let ack = self.request_phase(offer).await?;
 
         // We're now bound with a valid lease
-        self.handle_ack(&ack)?;
+        self.handle_ack(&ack).await?;
         self.transition_to(DhcpState::Bound)?;
 
         let dora_duration = dora_start.elapsed().as_millis();
@@ -194,7 +194,7 @@ impl Client {
                 DhcpState::Renewing => {
                     // Try to renew with original server
                     match self.renew_phase().await {
-                        Ok(ack) => match self.handle_ack(&ack) {
+                        Ok(ack) => match self.handle_ack(&ack).await {
                             Ok(()) => {
                                 info!("Lease rebound successfully");
                                 self.transition_to(DhcpState::Bound)?;
@@ -216,7 +216,7 @@ impl Client {
                 DhcpState::Rebinding => {
                     // Try to rebind with any server
                     match self.rebind_phase().await {
-                        Ok(ack) => match self.handle_ack(&ack) {
+                        Ok(ack) => match self.handle_ack(&ack).await {
                             Ok(()) => {
                                 info!("Lease rebound successfully");
                                 self.transition_to(DhcpState::Bound)?;
@@ -629,13 +629,11 @@ impl Client {
         }
     }
 
-    // === Helper Methods ===
-
     /// Handle ACK message and update lease information
-    fn handle_ack(&mut self, ack: &Message) -> Result<(), ClientError> {
+    async fn handle_ack(&mut self, ack: &Message) -> Result<(), ClientError> {
         let server_id = ack.options.dhcp_server_id.unwrap();
 
-        // validate config
+        // validate parameters in ack
 
         // earlier offered ip must match acked ip
         if let Some(offered_ip) = self.offered_ip {
@@ -647,18 +645,17 @@ impl Client {
             }
         }
 
-        // your_ip_address must be unicast
-        if ack.your_ip_address.is_unspecified()
-            || ack.your_ip_address.is_multicast()
-            || ack.your_ip_address.is_broadcast()
-            || ack.your_ip_address.is_loopback()
-        {
-            error!("ACK contains invalid 'your_ip_address'");
+        // ip must be unicast
+        if !is_unicast(ack.your_ip_address) {
+            error!("ACK 'your_ip_address' is not unicast: {}", ack.your_ip_address);
             return Err(ClientError::InvalidLease);
         }
 
         if ack.your_ip_address.is_link_local() {
-            warn!("IP Address in ACK from {} is a link-local unicast IP: {}", server_id, ack.your_ip_address);
+            warn!(
+                "IP Address in ACK from {} is a link-local unicast IP: {}",
+                server_id, ack.your_ip_address
+            );
         }
 
         let lease_time = ack.options.address_time.unwrap();
@@ -669,12 +666,11 @@ impl Client {
             Some(mask) => {
                 let bits = u32::from(mask);
                 let mask = bits.leading_ones();
-                if mask > 0 && mask < 32 && mask + bits.trailing_zeros() == 32 {
-                    mask
-                } else {
+                if mask == 0 || mask == 32 || mask + bits.trailing_zeros() != 32 {
                     error!("ACK contains invalid 'subnet_mask': {}", mask);
                     return Err(ClientError::InvalidLease);
                 }
+                mask
             }
             None => {
                 warn!("ACK from {} lacks subnet mask, using default class-based mask", server_id);
@@ -687,25 +683,84 @@ impl Client {
             }
         };
 
-        // classless static routes
-        // let routes =
+        use std::collections::HashSet;
+        let mut seen_destinations = HashSet::new();
+        let mut cleaned_routes = Vec::new();
+        let mut default_gw = None;
 
+        // classless static routes validation
+        if let Some(routes) = &ack.options.classless_static_routes {
+            for route in routes {
+                let (dest, via, mask) = route;
 
+                // Skip if destination already seen or via address is not unicast
+                if seen_destinations.contains(dest) || !is_unicast(*via) {
+                    continue;
+                }
+
+                // Check for default gateway (mask == 0)
+                if mask.is_unspecified() && default_gw.is_none() {
+                    default_gw = Some(via.clone());
+                    dbg!("using default gw {:?} from classless route option", via);
+                }
+
+                // Add to seen set and include in result
+                seen_destinations.insert(dest.clone());
+                cleaned_routes.push(route.clone());
+            }
+        }
+
+        // if default gateway isn't defined in classless routes option, fall back to router option
+        if default_gw.is_none() {
+            if let Some(gateways) = &ack.options.routers {
+                default_gw = gateways.iter().find(|&&gw| is_unicast(gw)).cloned();
+            }
+        }
+
+        if default_gw.is_none() {
+            error!("ACK from {} lacks a usable DEFAULT_GW or CLASSLESS_ROUTE default route", server_id);
+            return Err(ClientError::InvalidLease);
+        }
+
+        // warn if default gateway and ack.your_ip_address are not on the same subnet
+        if let Some(gw) = default_gw {
+            let mask_bits = (0xFFFFFFFFu32 << (32 - subnet)) & 0xFFFFFFFF;
+            let client_network = u32::from(ack.your_ip_address) & mask_bits;
+            let gateway_network = u32::from(gw) & mask_bits;
+
+            if client_network != gateway_network {
+                warn!(
+                    "Default gateway {} is not on the same subnet as assigned IP {} (/{} mask)",
+                    gw, ack.your_ip_address, subnet
+                );
+            }
+        }
 
         // apply config
-
         self.lease = Some(LeaseInfo::new(
             ack.your_ip_address,
             server_id,
             lease_time,
-            ack.options.renewal_time,
-            ack.options.rebinding_time,
+            renewal_time,
+            rebinding_time,
+            ack.options.domain_name_servers.clone(),
+            ack.options.domain_name.clone(),
+            ack.options.ntp_servers.clone(),
         ));
 
-        info!(
-            "Lease established: IP={}, Server={}, Duration={}s",
-            ack.your_ip_address, server_id, lease_time
-        );
+        info!("Lease: IP={}, Server={}, Duration={}s", ack.your_ip_address, server_id, lease_time);
+        
+        if let Some(ref dns_servers) = ack.options.domain_name_servers {
+            info!("DNS servers: {:?}", dns_servers);
+        }
+        
+        if let Some(ref domain_name) = ack.options.domain_name {
+            info!("Domain name: {}", domain_name);
+        }
+        
+        if let Some(ref ntp_servers) = ack.options.ntp_servers {
+            info!("NTP servers: {:?}", ntp_servers);
+        }
 
         Ok(())
     }
@@ -780,6 +835,10 @@ impl Client {
         let (_, message) = self.wait_for_message_types(&[MessageType::DhcpAck, MessageType::DhcpNak]).await?;
         Ok(message)
     }
+}
+
+fn is_unicast(ip: Ipv4Addr) -> bool {
+    !(ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() || ip.is_loopback())
 }
 
 #[cfg(test)]
@@ -934,6 +993,13 @@ mod tests {
     }
 
     #[test]
+    fn test_is_unicast() {
+        let ip = Ipv4Addr::new(169, 254, 169, 254);
+        assert!(is_unicast(ip));
+        assert!(ip.is_link_local());
+    }
+
+    #[test]
     fn test_state_transitions() {
         let mut client = MockClient::new();
 
@@ -1054,9 +1120,12 @@ mod tests {
         let lease = LeaseInfo::new(
             assigned_ip,
             server_ip,
-            3600,       // 1 hour lease
-            Some(1800), // T1 = 30 minutes
-            Some(3150), // T2 = 52.5 minutes
+            3600, // 1 hour lease
+            1800, // T1 = 30 minutes
+            3150, // T2 = 52.5 minutes
+            None, // DNS servers
+            None, // Domain name
+            None, // NTP servers
         );
 
         assert_eq!(lease.t1(), 1800);
@@ -1076,8 +1145,11 @@ mod tests {
             assigned_ip,
             server_ip,
             3600, // 1 hour lease
-            None, // No T1 - should default to 50%
-            None, // No T2 - should default to 87.5%
+            1800, // No T1 - should default to 50%
+            3150, // No T2 - should default to 87.5%
+            None, // DNS servers
+            None, // Domain name
+            None, // NTP servers
         );
 
         assert_eq!(lease.t1(), 1800); // 50% of 3600
@@ -1130,9 +1202,12 @@ mod tests {
         let lease = LeaseInfo::new(
             assigned_ip,
             server_ip,
-            2,       // 2 seconds lease time
-            Some(1), // T1 = 1 second
-            Some(1), // T2 = 1 second
+            2,    // 2 seconds lease time
+            1,    // T1 = 1 second
+            1,    // T2 = 1 second
+            None, // DNS servers
+            None, // Domain name
+            None, // NTP servers
         );
 
         // Initially, lease should not be expired
