@@ -156,6 +156,14 @@ impl Client {
             return Err(ClientError::Protocol("Must be in BOUND state to run lifecycle".to_string()));
         }
 
+        // Check for infinite lease - no renewal needed
+        if let Some(lease) = &self.lease {
+            if lease.is_infinite() {
+                info!("Lease is infinite - no renewal required, exiting lifecycle");
+                return Ok(());
+            }
+        }
+
         loop {
             let lease = self
                 .lease

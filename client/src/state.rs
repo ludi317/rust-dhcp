@@ -145,6 +145,11 @@ impl LeaseInfo {
         self.time_until_expiry().is_zero()
     }
 
+    /// Check if lease is infinite (never expires)
+    pub fn is_infinite(&self) -> bool {
+        self.lease_time == 0xffffffff
+    }
+
     /// Calculate retry interval according to RFC 2131 section 4.4.5
     ///
     /// "In both RENEWING and REBINDING states, if the client receives no

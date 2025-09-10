@@ -126,7 +126,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             result = client.run_lifecycle() => {
                 match result {
                     Ok(()) => {
-                        unreachable!("lifecycle should run indefinitely");
+                        info!("🏁 Lifecycle completed (infinite lease or clean exit)");
+                        break; // Exit main loop for infinite leases
                     }
                     Err(ClientError::LeaseExpired) => {
                         warn!("⏰ Lease expired, returning to INIT and restarting configuration");
