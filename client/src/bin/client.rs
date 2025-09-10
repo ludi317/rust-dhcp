@@ -26,9 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(handle) => {
             info!(
                 "Created netlink handle: interface='{}', index={}, mac={}",
-                handle.interface_name,
-                handle.interface_idx,
-                handle.interface_mac
+                handle.interface_name, handle.interface_idx, handle.interface_mac
             );
             handle
         }
@@ -86,14 +84,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         {
                             Ok(()) => {
                                 info!("📤 DHCPDECLINE sent successfully");
-                                info!("🔄 Restarting DHCP configuration process...");
-                                continue; // Restart the configuration loop
                             }
                             Err(decline_err) => {
                                 warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
-                                continue; // Still restart the configuration loop
                             }
                         }
+                        info!("⏳ Waiting 10 seconds before retrying...");
+                        // wait 10 seconds per RFC 2131 section 3.1.5
+                        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                        info!("🔄 Restarting DHCP configuration process...");
+                        continue; // Restart the configuration loop
                     } else {
                         warn!("⚠️  Failed to apply network configuration: {}", e);
                     }
