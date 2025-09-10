@@ -46,11 +46,32 @@ impl DhcpFramed {
     }
 
     /// Convenience method to create and bind a socket.
-    pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
-        let socket = UdpSocket::bind(addr).await?;
-        // Enable broadcast for DHCP
+    pub async fn bind(addr: SocketAddr, interface_name: &str) -> io::Result<Self> {
+        use socket2::{Socket, Domain, Type, Protocol};
+        
+        // Create socket with socket2 for more control
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+        
+        // Set the same socket options as isc-dhcp and udhcpc:
+        // isc-dhcp: https://github.com/isc-projects/dhcp/blob/master/common/socket.c
+        // udhcpc:   https://coral.googlesource.com/busybox/+/refs/tags/1_16_1/networking/udhcp/socket.c
+
+        socket.set_reuse_address(true)?;
         socket.set_broadcast(true)?;
-        Self::new(socket)
+        socket.set_nonblocking(true)?;
+
+        // Bind to address
+        socket.bind(&addr.into())?;
+        
+        // Convert to std socket then to tokio socket
+        let std_socket: std::net::UdpSocket = socket.into();
+        let tokio_socket = UdpSocket::from_std(std_socket)?;
+
+        // Bind to specific interface
+        #[cfg(target_os = "linux")]
+        tokio_socket.bind_device(Some(interface_name.as_bytes()))?;
+        
+        Self::new(tokio_socket)
     }
 }
 

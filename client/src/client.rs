@@ -2,7 +2,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use eui48::MacAddress;
-use ipnetwork::Ipv4Network;
 use log::{debug, error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
@@ -63,10 +62,10 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        bind_addr: SocketAddr, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>, hostname: Option<String>,
+        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>, hostname: Option<String>,
         server_address: Option<Ipv4Addr>, max_message_size: Option<u16>,
     ) -> Result<Self, ClientError> {
-        let socket = DhcpFramed::bind(bind_addr).await?;
+        let socket = DhcpFramed::bind(bind_addr, interface_name).await?;
 
         let hostname = if hostname.is_none() {
             hostname::get().ok().and_then(|s| s.into_string().ok())
