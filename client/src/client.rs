@@ -486,10 +486,9 @@ impl Client {
             .ok_or_else(|| ClientError::Protocol("No lease to renew".to_string()))?;
 
         let request = self.builder.request_renew(
-            self.xid,
-            false, // not broadcast for renewal
+            self.xid, // not broadcast for renewal
             lease.assigned_ip,
-            None, // lease time
+            None,
         );
 
         // Send unicast to original server
@@ -539,10 +538,9 @@ impl Client {
             .ok_or_else(|| ClientError::Protocol("No lease to rebind".to_string()))?;
 
         let request = self.builder.request_renew(
-            self.xid,
-            true, // broadcast for rebinding
+            self.xid, // broadcast for rebinding
             lease.assigned_ip,
-            None, // lease time
+            None,
         );
 
         self.send_broadcast(request).await?;
@@ -1051,7 +1049,7 @@ mod tests {
 
         assert_eq!(discover.transaction_id, xid);
         assert_eq!(discover.options.dhcp_message_type, Some(MessageType::DhcpDiscover));
-        assert_eq!(discover.is_broadcast, true); // Broadcast flag should be set
+        assert_eq!(discover.is_broadcast, false);
     }
 
     #[test]
@@ -1075,7 +1073,7 @@ mod tests {
         let xid = 0x12345678;
         let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
 
-        let request = builder.request_renew(xid, false, assigned_ip, None);
+        let request = builder.request_renew(xid, assigned_ip, None);
 
         assert_eq!(request.transaction_id, xid);
         assert_eq!(request.options.dhcp_message_type, Some(MessageType::DhcpRequest));

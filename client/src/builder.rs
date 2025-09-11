@@ -48,7 +48,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: true,
+            is_broadcast: false,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -85,7 +85,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: true,
+            is_broadcast: false,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -119,7 +119,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: true,
+            is_broadcast: false,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -136,7 +136,7 @@ impl MessageBuilder {
 
     /// Creates a `DHCPREQUEST` in `BOUND`, `RENEWING` or `REBINDING` state.
     pub fn request_renew(
-        &self, transaction_id: u32, is_broadcast: bool, client_ip_address: Ipv4Addr, address_time: Option<u32>,
+        &self, transaction_id: u32, client_ip_address: Ipv4Addr, address_time: Option<u32>,
     ) -> Message {
         let mut options = Options::default();
         self.append_default_options(&mut options);
@@ -154,7 +154,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast,
+            is_broadcast: false,
 
             client_ip_address,
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -186,7 +186,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: true,
+            is_broadcast: false,
 
             client_ip_address,
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -255,7 +255,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: true,
+            is_broadcast: false,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
