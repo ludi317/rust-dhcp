@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("📡 DHCP INFORM demonstration");
 
     // Create RFC compliant client
-    let mut client = Client::new(bind_addr, "en0", client_mac, None, Some("rust-inform-demo".to_string()), None).await?;
+    let mut client = Client::new(bind_addr, "en0", client_mac, None, None).await?;
 
     // Now use DHCP INFORM to get additional configuration information
     match client.inform(assigned_ip).await {

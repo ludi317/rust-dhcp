@@ -62,17 +62,12 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>, hostname: Option<String>,
+        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>,
         server_address: Option<Ipv4Addr>,
     ) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(bind_addr, interface_name).await?;
 
-        let hostname = if hostname.is_none() {
-            hostname::get().ok().and_then(|s| s.into_string().ok())
-        } else {
-            hostname
-        };
-
+        let hostname = hostname::get().ok().and_then(|s| s.into_string().ok());
         let client_id = client_id.unwrap_or(client_hardware_address.as_bytes().to_vec());
 
         let builder = MessageBuilder::new(client_hardware_address, client_id, hostname);
@@ -485,11 +480,7 @@ impl Client {
             .clone()
             .ok_or_else(|| ClientError::Protocol("No lease to renew".to_string()))?;
 
-        let request = self.builder.request_renew(
-            self.xid,
-            lease.assigned_ip,
-            None,
-        );
+        let request = self.builder.request_renew(self.xid, lease.assigned_ip, None);
 
         // Send unicast to original server
         self.send_unicast(request, lease.server_id).await?;
@@ -537,11 +528,7 @@ impl Client {
             .clone()
             .ok_or_else(|| ClientError::Protocol("No lease to rebind".to_string()))?;
 
-        let request = self.builder.request_renew(
-            self.xid,
-            lease.assigned_ip,
-            None,
-        );
+        let request = self.builder.request_renew(self.xid, lease.assigned_ip, None);
 
         self.send_broadcast(request).await?;
         info!("Sent DHCP REQUEST (rebind) (attempt {})", self.retry_state.attempt + 1);
@@ -751,15 +738,15 @@ impl Client {
         ));
 
         info!("Lease: IP={}, Server={}, Duration={}s", ack.your_ip_address, server_id, lease_time);
-        
+
         if let Some(ref dns_servers) = ack.options.domain_name_servers {
             info!("DNS servers: {:?}", dns_servers);
         }
-        
+
         if let Some(ref domain_name) = ack.options.domain_name {
             info!("Domain name: {}", domain_name);
         }
-        
+
         if let Some(ref ntp_servers) = ack.options.ntp_servers {
             info!("NTP servers: {:?}", ntp_servers);
         }
@@ -782,7 +769,6 @@ impl Client {
         self.socket.send_message(item).await?;
         Ok(())
     }
-
 
     /// Wait for one of the specified message types with transaction ID validation
     async fn wait_for_message_types(&mut self, expected_types: &[MessageType]) -> Result<(SocketAddr, Message), ClientError> {
