@@ -42,7 +42,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68),
         &netlink_handle.interface_name,
         netlink_handle.interface_mac,
-        None,
     )
     .await?;
 

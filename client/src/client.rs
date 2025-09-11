@@ -48,8 +48,6 @@ pub struct Client {
     lease: Option<LeaseInfo>,
     /// Retry state for current operation
     retry_state: RetryState,
-    /// Server address for unicast (if known)
-    server_address: Option<Ipv4Addr>,
     /// Current transaction ID
     xid: u32,
     /// Last offered IP (for REQUEST messages)
@@ -61,9 +59,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn new(
-        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, server_address: Option<Ipv4Addr>,
-    ) -> Result<Self, ClientError> {
+    pub async fn new(bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(bind_addr, interface_name).await?;
 
         let hostname = hostname::get().ok().and_then(|s| s.into_string().ok());
@@ -78,7 +74,6 @@ impl Client {
             state: DhcpState::Init,
             lease: None,
             retry_state,
-            server_address,
             xid,
             offered_ip: None,
             previous_ip: None,
