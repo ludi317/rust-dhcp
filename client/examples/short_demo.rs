@@ -16,9 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]);
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
+    
 
-    let mut client = Client::new(bind_addr, "en0", client_mac).await?;
+    let mut client = Client::new("en0", client_mac).await?;
 
     info!("🎬 Short RFC client demonstration");
 

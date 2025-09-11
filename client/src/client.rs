@@ -59,8 +59,8 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn new(bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress) -> Result<Self, ClientError> {
-        let socket = DhcpFramed::bind(bind_addr, interface_name).await?;
+    pub async fn new(interface_name: &str, client_hardware_address: MacAddress) -> Result<Self, ClientError> {
+        let socket = DhcpFramed::bind(interface_name).await?;
 
         let hostname = hostname::get().ok().and_then(|s| s.into_string().ok());
         let builder = MessageBuilder::new(client_hardware_address, hostname);

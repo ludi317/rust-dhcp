@@ -1,6 +1,6 @@
 //! The main DHCP socket module.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -46,7 +46,7 @@ impl DhcpFramed {
     }
 
     /// Convenience method to create and bind a socket.
-    pub async fn bind(addr: SocketAddr, interface_name: &str) -> io::Result<Self> {
+    pub async fn bind(interface_name: &str) -> io::Result<Self> {
         use socket2::{Socket, Domain, Type, Protocol};
         
         // Create socket with socket2 for more control
@@ -61,6 +61,7 @@ impl DhcpFramed {
         socket.set_nonblocking(true)?;
 
         // Bind to address
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
         socket.bind(&addr.into())?;
         
         // Convert to std socket then to tokio socket
