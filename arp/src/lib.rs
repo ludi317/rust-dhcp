@@ -381,9 +381,6 @@ struct ArpReply {
 }
 
 fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
-    if data.len() < MIN_ARP_PACKET_SIZE {
-        return None;
-    }
 
     // Skip Ethernet header and check ARP packet
     let arp_start = ETHERNET_HEADER_SIZE;
