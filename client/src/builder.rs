@@ -6,6 +6,8 @@ use eui48::{MacAddress, EUI48LEN};
 
 use dhcp_protocol::*;
 
+const MAX_MESSAGE_SIZE: Option<u16> = Some(1280);
+
 /// Builds common client messages with some parameters.
 pub struct MessageBuilder {
     /// Mandatory `MAC-48` address.
@@ -29,6 +31,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpDiscover);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = address_request;
         options.address_time = address_time;
@@ -64,6 +67,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.dhcp_server_id = Some(dhcp_server_id);
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = Some(address_request);
@@ -98,6 +102,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = Some(address_request);
         options.address_time = address_time;
@@ -133,6 +138,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
         options.address_time = address_time;
 
@@ -165,6 +171,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpInform);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
 
         Message {
@@ -198,6 +205,7 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpRelease);
+        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.dhcp_server_id = Some(dhcp_server_id);
         options.dhcp_message = dhcp_message;
 
