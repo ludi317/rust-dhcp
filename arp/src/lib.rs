@@ -24,9 +24,9 @@ const MIN_ARP_PACKET_SIZE: usize = ETHERNET_HEADER_SIZE + ARP_HEADER_SIZE; // 42
 
 // ARP Probe RFC 5227 constants
 const PROBE_NUM: usize = 3; // Send 3 probe packets
-const PROBE_MIN_WAIT_MS: u64 = 1000; // Wait 1 second between probes
-const PROBE_MAX_WAIT_MS: u64 = 2000; // Wait up to 2 seconds between probes
-const ANNOUNCE_WAIT_MS: u64 = 2000; // Delay 2 seconds before announcing
+const PROBE_MIN_WAIT_MS: u64 = 100; // Wait 100 ms between probes
+const PROBE_MAX_WAIT_MS: u64 = 200; // Wait up to 200 ms between probes
+const ANNOUNCE_WAIT_MS: u64 = PROBE_MAX_WAIT_MS; // Delay 200 ms before announcing
 const ANNOUNCE_INTERVAL_SECS: u64 = 2; // Time between Announcement packets
 
 // Buffer size constants
