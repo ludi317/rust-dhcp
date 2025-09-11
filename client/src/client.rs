@@ -261,8 +261,7 @@ impl Client {
                 Some("Client initiated release".to_string()),
             );
 
-            let server_addr = SocketAddr::new(IpAddr::V4(lease.server_id), DHCP_PORT_SERVER);
-            self.send_message_to(release, server_addr).await?;
+            self.send_unicast(release, lease.server_id).await?;
             info!("Sent DHCP RELEASE to {}", lease.server_id);
         }
 
@@ -277,9 +276,8 @@ impl Client {
 
         let decline = self.builder.decline(self.xid, conflicted_ip, server_id, Some(reason));
 
-        let server_addr = SocketAddr::new(IpAddr::V4(server_id), DHCP_PORT_SERVER);
-        self.send_message_to(decline, server_addr).await?;
-        info!("Sent DHCP DECLINE for {} to {}", conflicted_ip, server_id);
+        self.send_broadcast(decline).await?;
+        info!("Sent DHCP DECLINE for {}", conflicted_ip);
 
         // After decline, return to INIT state and start over
         self.lease = None;
@@ -294,7 +292,7 @@ impl Client {
 
         let inform = self.builder.inform(self.xid, client_ip);
 
-        self.send_message(inform).await?;
+        self.send_broadcast(inform).await?;
         info!("Sent DHCP INFORM");
 
         // Wait for ACK response
@@ -395,7 +393,7 @@ impl Client {
                 None,
             );
 
-            self.send_message(discover).await?;
+            self.send_broadcast(discover).await?;
             info!("Sent DHCP DISCOVER (attempt {})", self.retry_state.attempt + 1);
             self.retry_state.record_attempt();
 
@@ -436,7 +434,7 @@ impl Client {
                 offer.options.dhcp_server_id.unwrap(),
             );
 
-            self.send_message(request).await?;
+            self.send_broadcast(request).await?;
             info!(
                 "Sent DHCP REQUEST for {} (attempt {})",
                 offer.your_ip_address,
@@ -495,8 +493,7 @@ impl Client {
         );
 
         // Send unicast to original server
-        let server_addr = SocketAddr::new(IpAddr::V4(lease.server_id), DHCP_PORT_SERVER);
-        self.send_message_to(request, server_addr).await?;
+        self.send_unicast(request, lease.server_id).await?;
         info!(
             "Sent DHCP REQUEST (renew) to {} (attempt {})",
             lease.server_id,
@@ -548,8 +545,8 @@ impl Client {
             None, // lease time
         );
 
-        self.send_message(request).await?;
-        info!("Sent DHCP REQUEST (rebind) broadcast (attempt {})", self.retry_state.attempt + 1);
+        self.send_broadcast(request).await?;
+        info!("Sent DHCP REQUEST (rebind) (attempt {})", self.retry_state.attempt + 1);
         self.last_request_time = Some(Instant::now());
         self.retry_state.record_attempt();
 
@@ -592,7 +589,7 @@ impl Client {
                 None, // lease time
             );
 
-            self.send_message(request).await?;
+            self.send_broadcast(request).await?;
             info!(
                 "Sent DHCP REQUEST (init-reboot) for {} (attempt {})",
                 previous_ip,
@@ -772,23 +769,22 @@ impl Client {
         Ok(())
     }
 
-    /// Send a message using broadcast or unicast based on configuration
-    async fn send_message(&mut self, message: Message) -> Result<(), ClientError> {
-        let dest_addr = if let Some(server_ip) = self.server_address {
-            SocketAddr::new(IpAddr::V4(server_ip), DHCP_PORT_SERVER)
-        } else {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), DHCP_PORT_SERVER)
-        };
-
-        self.send_message_to(message, dest_addr).await
-    }
-
-    /// Send a message to a specific address
-    async fn send_message_to(&mut self, message: Message, addr: SocketAddr) -> Result<(), ClientError> {
-        let item = (addr, (message, None));
+    /// Send a message via broadcast
+    async fn send_broadcast(&mut self, message: Message) -> Result<(), ClientError> {
+        let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::BROADCAST), DHCP_PORT_SERVER);
+        let item = (broadcast_addr, (message, None));
         self.socket.send_message(item).await?;
         Ok(())
     }
+
+    /// Send a message via unicast to a specific server
+    async fn send_unicast(&mut self, message: Message, server_ip: Ipv4Addr) -> Result<(), ClientError> {
+        let server_addr = SocketAddr::new(IpAddr::V4(server_ip), DHCP_PORT_SERVER);
+        let item = (server_addr, (message, None));
+        self.socket.send_message(item).await?;
+        Ok(())
+    }
+
 
     /// Wait for one of the specified message types with transaction ID validation
     async fn wait_for_message_types(&mut self, expected_types: &[MessageType]) -> Result<(SocketAddr, Message), ClientError> {

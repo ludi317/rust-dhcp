@@ -255,7 +255,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            is_broadcast: true,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
