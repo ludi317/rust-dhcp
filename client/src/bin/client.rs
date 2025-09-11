@@ -4,9 +4,8 @@ use dhcp_client::config::apply_config;
 use dhcp_client::network::NetlinkHandle;
 use dhcp_client::{Client, ClientError};
 use env_logger;
-use log::{debug, info, warn};
+use log::{info, warn};
 use std::env;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process;
 use tokio::{select, signal};
 

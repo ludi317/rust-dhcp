@@ -54,8 +54,6 @@ pub struct Client {
     offered_ip: Option<Ipv4Addr>,
     /// Previous IP address (for INIT-REBOOT)
     previous_ip: Option<Ipv4Addr>,
-    /// Time when last request was sent
-    last_request_time: Option<Instant>,
 }
 
 impl Client {
@@ -77,7 +75,6 @@ impl Client {
             xid,
             offered_ip: None,
             previous_ip: None,
-            last_request_time: None,
         })
     }
 
@@ -427,7 +424,6 @@ impl Client {
                 offer.your_ip_address,
                 self.retry_state.attempt + 1
             );
-            self.last_request_time = Some(Instant::now());
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
@@ -481,7 +477,6 @@ impl Client {
             lease.server_id,
             self.retry_state.attempt + 1
         );
-        self.last_request_time = Some(Instant::now());
         self.retry_state.record_attempt();
 
         // Wait for response with lease-specific timeout
@@ -524,7 +519,6 @@ impl Client {
 
         self.send_broadcast(request).await?;
         info!("Sent DHCP REQUEST (rebind) (attempt {})", self.retry_state.attempt + 1);
-        self.last_request_time = Some(Instant::now());
         self.retry_state.record_attempt();
 
         // Wait for response with lease-specific timeout
@@ -572,7 +566,6 @@ impl Client {
                 previous_ip,
                 self.retry_state.attempt + 1
             );
-            self.last_request_time = Some(Instant::now());
             self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout

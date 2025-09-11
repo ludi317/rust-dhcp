@@ -173,8 +173,6 @@ impl LeaseInfo {
 pub struct RetryState {
     /// Number of retries attempted
     pub attempt: u32,
-    /// When the last attempt was made
-    pub last_attempt: Instant,
     /// Base retry interval
     pub base_interval: Duration,
     /// Maximum retry interval
@@ -186,7 +184,6 @@ impl RetryState {
     pub fn new() -> Self {
         Self {
             attempt: 0,
-            last_attempt: Instant::now(),
             base_interval: Duration::from_secs(2),
             max_interval: Duration::from_secs(64), // RFC 2131 suggests 64s max for initial requests
         }
@@ -195,13 +192,11 @@ impl RetryState {
     /// Reset retry state
     pub fn reset(&mut self) {
         self.attempt = 0;
-        self.last_attempt = Instant::now();
     }
 
     /// Record a retry attempt
     pub fn record_attempt(&mut self) {
         self.attempt += 1;
-        self.last_attempt = Instant::now();
     }
 
     /// Get the next retry interval using exponential backoff
