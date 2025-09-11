@@ -634,7 +634,7 @@ impl Client {
 
         let lease_time = ack.options.address_time.unwrap();
         let renewal_time = ack.options.renewal_time.unwrap_or(lease_time / 2);
-        let rebinding_time = ack.options.rebinding_time.unwrap_or(lease_time * 7 / 8);
+        let rebinding_time = ack.options.rebinding_time.unwrap_or(((lease_time as u64 * 7) / 8) as u32);
 
         let subnet = match ack.options.subnet_mask {
             Some(mask) => {
