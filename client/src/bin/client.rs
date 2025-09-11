@@ -44,7 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         netlink_handle.interface_mac,
         None, // client_id (will use MAC)
         Some("rust-rfc-dhcp-client".to_string()),
-        None, // server_address (broadcast discovery)
         None,
     )
     .await?;

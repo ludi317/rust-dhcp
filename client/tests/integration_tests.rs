@@ -16,7 +16,7 @@ async fn create_test_client(hostname: &str) -> Result<Client, ClientError> {
     let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
     let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
 
-    Client::new(bind_addr, "en0", client_mac, None, Some(hostname.to_string()), None, None).await
+    Client::new(bind_addr, "en0", client_mac, None, Some(hostname.to_string()), None).await
 }
 
 #[tokio::test]
@@ -141,7 +141,6 @@ async fn test_dhcp_inform_with_detected_network() {
         client_mac,
         None,
         Some("rust-test-inform-detected".to_string()),
-        None,
         None,
     )
     .await
