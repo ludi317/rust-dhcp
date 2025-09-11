@@ -10,18 +10,15 @@ use dhcp_protocol::*;
 pub struct MessageBuilder {
     /// Mandatory `MAC-48` address.
     client_hardware_address: MacAddress,
-    /// Is set explicitly by user or defaulted to `client_hardware_address` bytes.
-    client_id: Vec<u8>,
     /// The optional machine hostname.
     hostname: Option<String>,
 }
 
 impl MessageBuilder {
     /// Creates a builder with message parameters which will not be changed.
-    pub fn new(client_hardware_address: MacAddress, client_id: Vec<u8>, hostname: Option<String>) -> Self {
+    pub fn new(client_hardware_address: MacAddress, hostname: Option<String>) -> Self {
         MessageBuilder {
             client_hardware_address,
-            client_id,
             hostname,
         }
     }
@@ -264,7 +261,6 @@ impl MessageBuilder {
 
     fn append_default_options(&self, options: &mut Options) {
         options.hostname = self.hostname.to_owned();
-        options.client_id = Some(self.client_id.to_owned());
     }
 
     fn parameter_list() -> Vec<u8> {

@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Store the IP for later reuse
     let previous_ip = {
         // Create RFC compliant client in its own scope
-        let mut client = Client::new(bind_addr, "en0", client_mac, None, None).await?;
+        let mut client = Client::new(bind_addr, "en0", client_mac, None).await?;
 
         // First, get an initial lease through normal DORA process
         info!("🚀 Phase 1: Initial DHCP configuration (DORA)");
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Simulate client restart - create new client instance with previous IP
     info!("🔄 Phase 2: Client restart with INIT-REBOOT");
-    let mut reboot_client = Client::new(bind_addr, "en0", client_mac, None, None).await?;
+    let mut reboot_client = Client::new(bind_addr, "en0", client_mac, None).await?;
 
     info!("📍 Attempting INIT-REBOOT for IP: {}", previous_ip);
 

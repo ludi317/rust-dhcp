@@ -43,7 +43,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &netlink_handle.interface_name,
         netlink_handle.interface_mac,
         None,
-        None,
     )
     .await?;
 

@@ -62,15 +62,12 @@ pub struct Client {
 
 impl Client {
     pub async fn new(
-        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, client_id: Option<Vec<u8>>,
-        server_address: Option<Ipv4Addr>,
+        bind_addr: SocketAddr, interface_name: &str, client_hardware_address: MacAddress, server_address: Option<Ipv4Addr>,
     ) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(bind_addr, interface_name).await?;
 
         let hostname = hostname::get().ok().and_then(|s| s.into_string().ok());
-        let client_id = client_id.unwrap_or(client_hardware_address.as_bytes().to_vec());
-
-        let builder = MessageBuilder::new(client_hardware_address, client_id, hostname);
+        let builder = MessageBuilder::new(client_hardware_address, hostname);
 
         let xid = rand::random();
         let retry_state = RetryState::new();
@@ -843,7 +840,7 @@ mod tests {
         let mac = create_test_mac();
         let client_id = vec![1, 2, 3, 4, 5, 6];
         let hostname = Some("test-client".to_string());
-        MessageBuilder::new(mac, client_id, hostname)
+        MessageBuilder::new(mac, hostname)
     }
 
     fn create_test_offer(xid: u32, offered_ip: Ipv4Addr, server_id: Ipv4Addr) -> Message {
