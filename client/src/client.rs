@@ -10,7 +10,7 @@ use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 
 use crate::builder::MessageBuilder;
 use crate::config::Configuration;
-use crate::state::{DhcpState, LeaseInfo, RetryState};
+use crate::state::{RetryState, DhcpState, LeaseInfo};
 
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
@@ -372,14 +372,11 @@ impl Client {
     async fn discover_phase(&mut self) -> Result<Message, ClientError> {
         loop {
             // Send DISCOVER
-            let discover = self.builder.discover(
-                self.xid, None, // requested IP
-                None,
-            );
+            let discover = self.builder.discover(self.xid, None, None);
 
             self.send_broadcast(discover).await?;
-            info!("Sent DHCP DISCOVER (attempt {})", self.retry_state.attempt + 1);
             self.retry_state.record_attempt();
+            info!("Sent DHCP DISCOVER (attempt {})", self.retry_state.attempt);
 
             // Wait for OFFER with timeout
             let timeout_duration = self.retry_state.next_interval();
@@ -419,12 +416,12 @@ impl Client {
             );
 
             self.send_broadcast(request).await?;
+            self.retry_state.record_attempt();
+
             info!(
                 "Sent DHCP REQUEST for {} (attempt {})",
-                offer.your_ip_address,
-                self.retry_state.attempt + 1
+                offer.your_ip_address, self.retry_state.attempt
             );
-            self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
             let timeout_duration = self.retry_state.next_interval();
@@ -472,12 +469,12 @@ impl Client {
 
         // Send unicast to original server
         self.send_unicast(request, lease.server_id).await?;
+        self.retry_state.record_attempt();
+
         info!(
             "Sent DHCP REQUEST (renew) to {} (attempt {})",
-            lease.server_id,
-            self.retry_state.attempt + 1
+            lease.server_id, self.retry_state.attempt
         );
-        self.retry_state.record_attempt();
 
         // Wait for response with lease-specific timeout
         let timeout_duration = lease.retry_interval(self.state);
@@ -518,8 +515,8 @@ impl Client {
         let request = self.builder.request_renew(self.xid, lease.assigned_ip, None);
 
         self.send_broadcast(request).await?;
-        info!("Sent DHCP REQUEST (rebind) (attempt {})", self.retry_state.attempt + 1);
         self.retry_state.record_attempt();
+        info!("Sent DHCP REQUEST (rebind) (attempt {})", self.retry_state.attempt);
 
         // Wait for response with lease-specific timeout
         let timeout_duration = lease.retry_interval(self.state);
@@ -561,12 +558,12 @@ impl Client {
             );
 
             self.send_broadcast(request).await?;
+            self.retry_state.record_attempt();
+
             info!(
                 "Sent DHCP REQUEST (init-reboot) for {} (attempt {})",
-                previous_ip,
-                self.retry_state.attempt + 1
+                previous_ip, self.retry_state.attempt
             );
-            self.retry_state.record_attempt();
 
             // Wait for ACK/NAK with timeout
             let timeout_duration = self.retry_state.next_interval();

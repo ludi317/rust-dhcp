@@ -66,14 +66,8 @@ pub struct LeaseInfo {
 impl LeaseInfo {
     /// Create new lease information
     pub fn new(
-        assigned_ip: Ipv4Addr, 
-        server_id: Ipv4Addr, 
-        lease_time: u32, 
-        renewal_time: u32, 
-        rebinding_time: u32,
-        dns_servers: Option<Vec<Ipv4Addr>>,
-        domain_name: Option<String>,
-        ntp_servers: Option<Vec<Ipv4Addr>>,
+        assigned_ip: Ipv4Addr, server_id: Ipv4Addr, lease_time: u32, renewal_time: u32, rebinding_time: u32,
+        dns_servers: Option<Vec<Ipv4Addr>>, domain_name: Option<String>, ntp_servers: Option<Vec<Ipv4Addr>>,
     ) -> Self {
         Self {
             assigned_ip,
@@ -168,25 +162,13 @@ impl LeaseInfo {
     }
 }
 
-/// Backoff strategy for retransmissions
-#[derive(Debug, Clone)]
 pub struct RetryState {
-    /// Number of retries attempted
     pub attempt: u32,
-    /// Base retry interval
-    pub base_interval: Duration,
-    /// Maximum retry interval
-    pub max_interval: Duration,
 }
 
 impl RetryState {
-    /// Create new retry state
     pub fn new() -> Self {
-        Self {
-            attempt: 0,
-            base_interval: Duration::from_secs(2),
-            max_interval: Duration::from_secs(64), // RFC 2131 suggests 64s max for initial requests
-        }
+        RetryState { attempt: 0 }
     }
 
     /// Reset retry state
@@ -202,15 +184,10 @@ impl RetryState {
     /// Get the next retry interval using exponential backoff
     pub fn next_interval(&self) -> Duration {
         use rand::Rng;
-        let base_interval = self.base_interval * 2_u32.pow(self.attempt.min(6)); // Cap at 2^6
-        let interval = if base_interval > self.max_interval {
-            self.max_interval
-        } else {
-            base_interval
-        };
+        let interval_secs = 1 << self.attempt.min(4); // Between 2^1 and 2^4 seconds
 
         let mut rng = rand::thread_rng();
-        let randomized_interval = interval.as_millis() as i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
+        let randomized_interval = interval_secs * 1000_i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
         Duration::from_millis(randomized_interval as u64)
     }
 }
