@@ -41,21 +41,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Now use DHCP INFORM to get additional configuration information
     match client.inform(assigned_ip).await {
-        Ok(inform_config) => {
-            info!("✅ DHCP INFORM successful!");
+        Ok(()) => {
+            info!("✅ DHCP Configuration obtained:");
+            if let Some(lease) = &client.lease {
+                info!("✅ DHCP Lease obtained:");
+                info!("   📍 Your IP: {}/{}", lease.assigned_ip, lease.subnet_prefix);
+                info!("   🚪 Gateway: {}", lease.gateway_ip);
+                info!("   ⏰ Lease Duration: {}s", lease.lease_time);
 
-            // Display configuration from INFORM
-            info!("📋 Configuration from INFORM:");
-            info!("   🏠 Server IP: {}", inform_config.server_ip_address);
-            if let Some(mask) = inform_config.subnet_mask {
-                info!("   🔍 Subnet Mask: {}", mask);
+                if let Some(ref dns_servers) = lease.dns_servers {
+                    info!("   🌐 DNS servers: {:?}", dns_servers);
+                }
+
+                if let Some(ref domain_name) = lease.domain_name {
+                    info!("   🏷️ Domain name: {}", domain_name);
+                }
+
+                if let Some(ref ntp_servers) = lease.ntp_servers {
+                    info!("   🕰️ NTP servers: {:?}", ntp_servers);
+                }
             }
-            if let Some(gw) = inform_config.routers.as_ref().and_then(|r| r.first()) {
-                info!("   🚪 Gateway: {}", gw);
-            }
-            if let Some(dns) = inform_config.domain_name_servers.as_ref().and_then(|d| d.first()) {
-                info!("   🌐 DNS: {}", dns);
-            }
+
+            info!("🔄 Current state: {}", client.state());
         }
         Err(ClientError::Timeout { .. }) => {
             info!("⏰ DHCP INFORM timed out");

@@ -2,7 +2,6 @@
 
 mod builder;
 mod client;
-pub mod config;
 pub mod network;
 mod state;
 pub mod utils;

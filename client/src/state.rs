@@ -45,6 +45,12 @@ impl fmt::Display for DhcpState {
 pub struct LeaseInfo {
     /// The IP address assigned to the client
     pub assigned_ip: Ipv4Addr,
+    /// Subnet prefix length assigned to the client
+    pub subnet_prefix: u8,
+    /// Gateway assigned to the client
+    pub gateway_ip: Ipv4Addr,
+    /// Routes assigned to the client
+    pub routes: Vec<(Ipv4Addr, Ipv4Addr, Ipv4Addr)>,
     /// The DHCP server that assigned the lease
     pub server_id: Ipv4Addr,
     /// When the lease was acquired
@@ -66,11 +72,15 @@ pub struct LeaseInfo {
 impl LeaseInfo {
     /// Create new lease information
     pub fn new(
-        assigned_ip: Ipv4Addr, server_id: Ipv4Addr, lease_time: u32, renewal_time: u32, rebinding_time: u32,
-        dns_servers: Option<Vec<Ipv4Addr>>, domain_name: Option<String>, ntp_servers: Option<Vec<Ipv4Addr>>,
+        assigned_ip: Ipv4Addr, subnet_prefix: u8, gateway_ip: Ipv4Addr, routes: Vec<(Ipv4Addr, Ipv4Addr, Ipv4Addr)>, server_id: Ipv4Addr, lease_time: u32,
+        renewal_time: u32, rebinding_time: u32, dns_servers: Option<Vec<Ipv4Addr>>, domain_name: Option<String>,
+        ntp_servers: Option<Vec<Ipv4Addr>>,
     ) -> Self {
         Self {
             assigned_ip,
+            subnet_prefix,
+            gateway_ip,
+            routes,
             server_id,
             lease_start: Instant::now(),
             lease_time,
@@ -145,12 +155,6 @@ impl LeaseInfo {
     }
 
     /// Calculate retry interval according to RFC 2131 section 4.4.5
-    ///
-    /// "In both RENEWING and REBINDING states, if the client receives no
-    /// response to its DHCPREQUEST message, the client SHOULD wait one-half
-    /// of the remaining time until T2 (in RENEWING state) and one-half of
-    /// the remaining lease time (in REBINDING state), down to a minimum of
-    /// 60 seconds, before retransmitting the DHCPREQUEST message."
     pub fn retry_interval(&self, state: DhcpState) -> Duration {
         let remaining = match state {
             DhcpState::Renewing => self.time_until_rebinding(),

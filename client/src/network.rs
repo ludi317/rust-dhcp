@@ -59,7 +59,7 @@ impl NetlinkHandle {
         Ok(NetlinkHandle {
             handle,
             interface_name: interface_name.to_string(),
-            interface_idx: interface_idx,
+            interface_idx,
             interface_mac,
         })
     }

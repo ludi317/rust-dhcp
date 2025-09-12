@@ -1,6 +1,5 @@
 //! Short RFC client demonstration example
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use env_logger;
@@ -10,6 +9,7 @@ use tokio::time::timeout;
 use tokio::{select, signal};
 
 use dhcp_client::{Client, ClientError};
+use dhcp_client::network::NetlinkHandle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,34 +17,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]);
     
-
-    let mut client = Client::new("en0", client_mac).await?;
+    let interface_name = "en0";
+    let mut client = Client::new(interface_name, client_mac).await?;
+    let netlink_handle = NetlinkHandle::new(interface_name).await?;
 
     info!("🎬 Short RFC client demonstration");
 
     // Get initial configuration
     // Perform initial DHCP configuration (DORA sequence)
-    match client.configure().await {
-        Ok(config) => {
+    match client.configure(&netlink_handle).await {
+        Ok(()) => {
             info!("✅ DHCP Configuration obtained:");
-            info!("   📍 Your IP: {}", config.your_ip_address);
-            info!("   🏠 Server IP: {}", config.server_ip_address);
-            if let Some(mask) = config.subnet_mask {
-                info!("   🔍 Subnet: {}", mask);
-            }
-            if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
-                info!("   🚪 Gateway: {}", gw);
-            }
-            if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
-                info!("   🌐 DNS: {}", dns);
-            }
-
-            // Display lease information
-            if let Some(lease) = client.lease() {
-                info!("📋 Lease Information:");
+            if let Some(lease) = &client.lease {
+                info!("✅ DHCP Lease obtained:");
+                info!("   📍 Your IP: {}/{}", lease.assigned_ip, lease.subnet_prefix);
+                info!("   🚪 Gateway: {}", lease.gateway_ip);
                 info!("   ⏰ Lease Duration: {}s", lease.lease_time);
-                info!("   ⏰ T1 (Renewal): {}s", lease.t1());
-                info!("   ⏰ T2 (Rebinding): {}s", lease.t2());
+
+                if let Some(ref dns_servers) = lease.dns_servers {
+                    info!("   🌐 DNS servers: {:?}", dns_servers);
+                }
+
+                if let Some(ref domain_name) = lease.domain_name {
+                    info!("   🏷️ Domain name: {}", domain_name);
+                }
+
+                if let Some(ref ntp_servers) = lease.ntp_servers {
+                    info!("   🕰️ NTP servers: {:?}", ntp_servers);
+                }
             }
 
             info!("🔄 Current state: {}", client.state());
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("⏳ Simulating client operation for 10 seconds...");
 
     select! {
-        result = timeout(Duration::from_secs(10), client.run_lifecycle()) => {
+        result = timeout(Duration::from_secs(10), client.run_lifecycle(&netlink_handle)) => {
             match result {
                 Ok(Ok(())) => {
                     info!("🏁 Client lifecycle completed normally");

@@ -1,6 +1,5 @@
 //! DHCP client executable
 
-use dhcp_client::config::apply_config;
 use dhcp_client::network::NetlinkHandle;
 use dhcp_client::{Client, ClientError};
 use env_logger;
@@ -35,77 +34,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    info!("🚀 Starting DHCP client");
-
     let mut client = Client::new(&netlink_handle.interface_name, netlink_handle.interface_mac).await?;
 
-    info!("📡 Initial state: {}", client.state());
-
+    info!("🚀 Starting DHCP client");
     // Main DHCP client loop with configuration and lifecycle management
     loop {
-        match client.configure().await {
-            Ok(config) => {
-                info!("✅ DHCP Configuration obtained:");
-                info!("   📍 Your IP: {}", config.your_ip_address);
-                info!("   🏠 Server IP: {}", config.server_ip_address);
-                if let Some(mask) = config.subnet_mask {
-                    info!("   🔍 Subnet: {}", mask);
-                }
-                if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
-                    info!("   🚪 Gateway: {}", gw);
-                }
-                if let Some(dns) = config.domain_name_servers.as_ref().and_then(|d| d.first()) {
-                    info!("   🌐 DNS: {}", dns);
-                }
-
-                // Apply network configuration
-                if let Err(e) = apply_config(&netlink_handle, &config).await {
-                    // Check if this is an IP conflict error
-                    if let Some(ClientError::IpConflict) = e.downcast_ref::<ClientError>() {
-                        warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
-
-                        match client
-                            .decline(
-                                config.your_ip_address,
-                                config.server_ip_address,
-                                "IP address conflict detected via ARP probe".to_string(),
-                            )
-                            .await
-                        {
-                            Ok(()) => {
-                                info!("📤 DHCPDECLINE sent successfully");
-                            }
-                            Err(decline_err) => {
-                                warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
-                            }
-                        }
-                        info!("⏳ Waiting 10 seconds before retrying...");
-                        // wait 10 seconds per RFC 2131 section 3.1.5
-                        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                        info!("🔄 Restarting DHCP configuration process...");
-                        continue; // Restart the configuration loop
-                    } else {
-                        warn!("⚠️  Failed to apply network configuration: {}", e);
-                    }
-                }
-
-                // Display lease information
-                if let Some(lease) = client.lease() {
-                    info!("📋 Lease Information:");
-                    info!("   ⏰ Lease Duration: {}s", lease.lease_time);
-                    info!("   ⏰ T1 (Renewal): {}s", lease.t1());
-                    info!("   ⏰ T2 (Rebinding): {}s", lease.t2());
-                }
-
+        match client.configure(&netlink_handle).await {
+            Ok(()) => {
+                info!("✅ DHCP Lease applied");
                 info!("🔄 Current state: {}", client.state());
-            }
-            Err(ClientError::Nak) => {
-                warn!("❌ Received DHCP NAK, restarting configuration process");
-                continue;
             }
             Err(e) => {
                 warn!("❌ DHCP configuration failed: {}", e);
-                return Err(e.into());
+                if let ClientError::IpConflict = e {
+                    warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
+                    match client
+                        .decline(
+                            client.lease().unwrap().assigned_ip,
+                            client.lease().unwrap().server_id,
+                            "IP address conflict detected via ARP probe".to_string(),
+                        )
+                        .await
+                    {
+                        Ok(()) => {
+                            info!("📤 DHCPDECLINE sent successfully");
+                        }
+                        Err(decline_err) => {
+                            warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
+                        }
+                    }
+                }
+                info!("⏳ Waiting 10 seconds before retrying...");
+                // wait 10 seconds per RFC 2131 section 3.1.5
+                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                info!("🔄 Restarting DHCP configuration process...");
+                continue; // Restart the configuration loop
             }
         };
 
@@ -113,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
 
         select! {
-            result = client.run_lifecycle() => {
+            result = client.run_lifecycle(&netlink_handle) => {
                 match result {
                     Ok(()) => {
                         info!("🏁 Lifecycle completed (infinite lease or clean exit)");

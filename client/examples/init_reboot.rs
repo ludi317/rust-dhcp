@@ -1,22 +1,31 @@
 //! RFC 2131 INIT-REBOOT demonstration example
 
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::time::Duration;
 
 use env_logger;
 use eui48::MacAddress;
 use log::info;
 
 use dhcp_client::{Client, ClientError};
+use dhcp_client::network::NetlinkHandle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let client_mac = MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x57]);
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
-
+    let args: Vec<String> = env::args().collect();
+    let interface_name = match args.get(1) {
+        Some(name) => name,
+        None => {
+            eprintln!("Usage: {} <interface_name>", args[0]);
+            eprintln!("Example: {} eth0", args[0]);
+            std::process::exit(1);
+        }
+    };
     info!("🔄 INIT-REBOOT demonstration");
+    let netlink_handle = NetlinkHandle::new(interface_name).await?;
 
     // Store the IP for later reuse
     let previous_ip = {
@@ -25,10 +34,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // First, get an initial lease through normal DORA process
         info!("🚀 Phase 1: Initial DHCP configuration (DORA)");
-        let initial_config = client.configure().await?;
-        info!("✅ Initial IP obtained: {}", initial_config.your_ip_address);
+        client.configure(&netlink_handle).await?;
+        let ip = client.lease().unwrap().assigned_ip;
+        info!("✅ Initial IP obtained: {}", ip);
 
-        let ip = initial_config.your_ip_address;
 
         // Release the current lease to simulate client restart
         info!("📤 Releasing current lease to simulate client restart...");
@@ -42,21 +51,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reboot_client = Client::new("en0", client_mac).await?;
 
     info!("📍 Attempting INIT-REBOOT for IP: {}", previous_ip);
+    match reboot_client.init_reboot(previous_ip, &netlink_handle).await {
+        Ok(()) => {
+            info!("✅ DHCP Configuration obtained:");
+            if let Some(lease) = &reboot_client.lease {
+                info!("✅ DHCP Lease obtained:");
+                info!("   📍 Your IP: {}/{}", lease.assigned_ip, lease.subnet_prefix);
+                info!("   🚪 Gateway: {}", lease.gateway_ip);
+                info!("   ⏰ Lease Duration: {}s", lease.lease_time);
 
-    match reboot_client.init_reboot(previous_ip).await {
-        Ok(config) => {
-            info!("🎉 SUCCESS: INIT-REBOOT successful! Reused IP: {}", config.your_ip_address);
+                if let Some(ref dns_servers) = lease.dns_servers {
+                    info!("   🌐 DNS servers: {:?}", dns_servers);
+                }
 
-            // Display configuration
-            info!("📋 Final Configuration:");
-            info!("   📍 IP Address: {}", config.your_ip_address);
-            info!("   🏠 Server IP: {}", config.server_ip_address);
-            if let Some(mask) = config.subnet_mask {
-                info!("   🔍 Subnet Mask: {}", mask);
+                if let Some(ref domain_name) = lease.domain_name {
+                    info!("   🏷️ Domain name: {}", domain_name);
+                }
+
+                if let Some(ref ntp_servers) = lease.ntp_servers {
+                    info!("   🕰️ NTP servers: {:?}", ntp_servers);
+                }
             }
-            if let Some(gw) = config.routers.as_ref().and_then(|r| r.first()) {
-                info!("   🚪 Gateway: {}", gw);
-            }
+
+            info!("🔄 Current state: {}", reboot_client.state());
         }
         Err(ClientError::Nak) => {
             info!("❌ INIT-REBOOT failed: Previous IP no longer valid");

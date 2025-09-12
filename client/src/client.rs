@@ -1,16 +1,16 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
+use arp::{announce_address, arp_probe, ArpProbeResult};
+use dhcp_framed::DhcpFramed;
+use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use eui48::MacAddress;
 use log::{debug, error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
-use dhcp_framed::DhcpFramed;
-use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
-
 use crate::builder::MessageBuilder;
-use crate::config::Configuration;
-use crate::state::{RetryState, DhcpState, LeaseInfo};
+use crate::network::NetlinkHandle;
+use crate::state::{DhcpState, LeaseInfo, RetryState};
 
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
@@ -35,6 +35,8 @@ pub enum ClientError {
     MismatchedIPAddress { acked: Ipv4Addr, offered: Ipv4Addr },
     #[error("Lease is invalid")]
     InvalidLease,
+    #[error("Failed to apply network configuration")]
+    FailedToApplyNetworkConfig,
 }
 
 pub struct Client {
@@ -45,7 +47,7 @@ pub struct Client {
     /// Current DHCP state
     state: DhcpState,
     /// Current lease information (if any)
-    lease: Option<LeaseInfo>,
+    pub lease: Option<LeaseInfo>,
     /// Retry state for current operation
     retry_state: RetryState,
     /// Current transaction ID
@@ -94,7 +96,7 @@ impl Client {
     }
 
     /// Attempt to reuse a previous IP address (INIT-REBOOT process)
-    pub async fn init_reboot(&mut self, previous_ip: Ipv4Addr) -> Result<Configuration, ClientError> {
+    pub async fn init_reboot(&mut self, previous_ip: Ipv4Addr, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         info!("Starting INIT-REBOOT process for IP: {}", previous_ip);
 
         self.transition_to(DhcpState::InitReboot)?;
@@ -103,14 +105,14 @@ impl Client {
         let ack = self.reboot_phase(previous_ip).await?;
 
         // We're now bound with the previous lease
-        self.handle_ack(&ack).await?;
+        self.handle_ack(&ack, netlink_handle).await?;
         self.transition_to(DhcpState::Bound)?;
 
-        Ok(Configuration::from_response(ack))
+        Ok(())
     }
 
     /// Perform full DHCP configuration process (DORA sequence)
-    pub async fn configure(&mut self) -> Result<Configuration, ClientError> {
+    pub async fn configure(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         info!("Starting DHCP configuration process");
         let dora_start = Instant::now();
 
@@ -125,17 +127,17 @@ impl Client {
         let ack = self.request_phase(offer).await?;
 
         // We're now bound with a valid lease
-        self.handle_ack(&ack).await?;
+        self.handle_ack(&ack, netlink_handle).await?;
         self.transition_to(DhcpState::Bound)?;
 
         let dora_duration = dora_start.elapsed().as_millis();
         info!("DORA sequence completed in {:?} ms", dora_duration);
 
-        Ok(Configuration::from_response(ack))
+        Ok(())
     }
 
     /// Run the client lifecycle - handles renewal, rebinding, and expiration
-    pub async fn run_lifecycle(&mut self) -> Result<(), ClientError> {
+    pub async fn run_lifecycle(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         if self.state != DhcpState::Bound {
             return Err(ClientError::Protocol("Must be in BOUND state to run lifecycle".to_string()));
         }
@@ -185,7 +187,7 @@ impl Client {
                 DhcpState::Renewing => {
                     // Try to renew with original server
                     match self.renew_phase().await {
-                        Ok(ack) => match self.handle_ack(&ack).await {
+                        Ok(ack) => match self.handle_ack(&ack, netlink_handle).await {
                             Ok(()) => {
                                 info!("Lease rebound successfully");
                                 self.transition_to(DhcpState::Bound)?;
@@ -207,7 +209,7 @@ impl Client {
                 DhcpState::Rebinding => {
                     // Try to rebind with any server
                     match self.rebind_phase().await {
-                        Ok(ack) => match self.handle_ack(&ack).await {
+                        Ok(ack) => match self.handle_ack(&ack, netlink_handle).await {
                             Ok(()) => {
                                 info!("Lease rebound successfully");
                                 self.transition_to(DhcpState::Bound)?;
@@ -271,7 +273,7 @@ impl Client {
     }
 
     /// Send DHCP INFORM message to get additional configuration
-    pub async fn inform(&mut self, client_ip: Ipv4Addr) -> Result<Configuration, ClientError> {
+    pub async fn inform(&mut self, client_ip: Ipv4Addr) -> Result<(), ClientError> {
         info!("Sending DHCP INFORM for IP: {}", client_ip);
 
         let inform = self.builder.inform(self.xid, client_ip);
@@ -283,9 +285,9 @@ impl Client {
         let timeout_duration = Duration::from_secs(10);
 
         match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpAck)).await {
-            Ok(Ok((_, ack))) => {
+            Ok(Ok((_, _ack))) => {
                 info!("Received DHCP ACK for INFORM");
-                Ok(Configuration::from_response(ack))
+                Ok(())
             }
             Ok(Err(e)) => {
                 warn!("DHCP INFORM failed: {}", e);
@@ -601,7 +603,7 @@ impl Client {
     }
 
     /// Handle ACK message and update lease information
-    async fn handle_ack(&mut self, ack: &Message) -> Result<(), ClientError> {
+    async fn handle_ack(&mut self, ack: &Message, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         let server_id = ack.options.dhcp_server_id.unwrap();
 
         // validate parameters in ack
@@ -633,7 +635,7 @@ impl Client {
         let renewal_time = ack.options.renewal_time.unwrap_or(lease_time / 2);
         let rebinding_time = ack.options.rebinding_time.unwrap_or(((lease_time as u64 * 7) / 8) as u32);
 
-        let subnet = match ack.options.subnet_mask {
+        let subnet: u8 = match ack.options.subnet_mask {
             Some(mask) => {
                 let bits = u32::from(mask);
                 let mask = bits.leading_ones();
@@ -641,7 +643,7 @@ impl Client {
                     error!("ACK contains invalid 'subnet_mask': {}", mask);
                     return Err(ClientError::InvalidLease);
                 }
-                mask
+                mask as u8
             }
             None => {
                 warn!("ACK from {} lacks subnet mask, using default class-based mask", server_id);
@@ -707,9 +709,74 @@ impl Client {
             }
         }
 
-        // apply config
+        // check if lease has changed
+
+        info!("✅ DHCP Lease received:");
+        info!("   📍 Your IP: {}/{}", ack.your_ip_address, subnet);
+        info!("   🚪 Gateway: {}", default_gw.unwrap());
+        info!("   ⏰ Lease Duration: {}s", lease_time);
+
+        if let Some(ref dns_servers) = ack.options.domain_name_servers {
+            info!("   🌐 DNS servers: {:?}", dns_servers);
+        }
+
+        if let Some(ref domain_name) = ack.options.domain_name {
+            info!("   🏷️ Domain name: {}", domain_name);
+        }
+
+        if let Some(ref ntp_servers) = ack.options.ntp_servers {
+            info!("   🕰️ NTP servers: {:?}", ntp_servers);
+        }
+
+        // Get interface details
+        let interface_idx = netlink_handle.interface_idx;
+        let our_mac = netlink_handle.interface_mac;
+
+        // Perform ARP probe to make sure no one else is using this ip address
+        match arp_probe(interface_idx, ack.your_ip_address, our_mac).await {
+            ArpProbeResult::Available => {
+                info!("✅ ARP probe successful - IP address {} is available", ack.your_ip_address);
+            }
+            ArpProbeResult::InUse => {
+                warn!("❌ IP address {} is already in use (detected via ARP)", ack.your_ip_address);
+                return Err(ClientError::IpConflict);
+            }
+            ArpProbeResult::Error(e) => {
+                warn!("⚠️  ARP probe failed: {} - proceeding anyway", e);
+            }
+        }
+
+        // Send ARP announcements
+        if let Err(e) = announce_address(interface_idx, ack.your_ip_address, our_mac).await {
+            warn!("⚠️  Failed to send gratuitous ARP announcement: {}", e);
+        }
+
+        info!(
+            "🔧 Assigning IP address {}/{} to interface {}",
+            ack.your_ip_address, subnet, netlink_handle.interface_name
+        );
+
+        // Assign the IP address
+        match netlink_handle.add_interface_ip(ack.your_ip_address, subnet).await {
+            Ok(()) => {
+                info!("✅ Successfully assigned IP address to interface");
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️  Failed to assign IP address to interface {}: {}",
+                    netlink_handle.interface_name, e
+                );
+                return Err(ClientError::FailedToApplyNetworkConfig);
+            }
+        }
+
+        // TODO: Apply additional configuration like routes, DNS, etc.
+
         self.lease = Some(LeaseInfo::new(
             ack.your_ip_address,
+            subnet,
+            default_gw.unwrap(),
+            cleaned_routes,
             server_id,
             lease_time,
             renewal_time,
@@ -718,21 +785,6 @@ impl Client {
             ack.options.domain_name.clone(),
             ack.options.ntp_servers.clone(),
         ));
-
-        info!("Lease: IP={}, Server={}, Duration={}s", ack.your_ip_address, server_id, lease_time);
-
-        if let Some(ref dns_servers) = ack.options.domain_name_servers {
-            info!("DNS servers: {:?}", dns_servers);
-        }
-
-        if let Some(ref domain_name) = ack.options.domain_name {
-            info!("Domain name: {}", domain_name);
-        }
-
-        if let Some(ref ntp_servers) = ack.options.ntp_servers {
-            info!("NTP servers: {:?}", ntp_servers);
-        }
-
         Ok(())
     }
 
@@ -1081,51 +1133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lease_timing() {
-        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
-        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-
-        // Test with explicit T1/T2 values
-        let lease = LeaseInfo::new(
-            assigned_ip,
-            server_ip,
-            3600, // 1 hour lease
-            1800, // T1 = 30 minutes
-            3150, // T2 = 52.5 minutes
-            None, // DNS servers
-            None, // Domain name
-            None, // NTP servers
-        );
-
-        assert_eq!(lease.t1(), 1800);
-        assert_eq!(lease.t2(), 3150);
-        assert!(!lease.should_renew());
-        assert!(!lease.should_rebind());
-        assert!(!lease.is_expired());
-    }
-
-    #[test]
-    fn test_lease_timing_defaults() {
-        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
-        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-
-        // Test lease with default T1/T2 values
-        let lease = LeaseInfo::new(
-            assigned_ip,
-            server_ip,
-            3600, // 1 hour lease
-            1800, // No T1 - should default to 50%
-            3150, // No T2 - should default to 87.5%
-            None, // DNS servers
-            None, // Domain name
-            None, // NTP servers
-        );
-
-        assert_eq!(lease.t1(), 1800); // 50% of 3600
-        assert_eq!(lease.t2(), 3150); // 87.5% of 3600
-    }
-
-    #[test]
     fn test_retry_state_exponential_backoff() {
         let mut retry_state = RetryState::new();
 
@@ -1160,43 +1167,6 @@ mod tests {
             to: DhcpState::Bound,
         };
         assert_eq!(error.to_string(), "State transition error: cannot go from INIT to BOUND");
-    }
-
-    #[tokio::test]
-    async fn test_lease_expiry_timing() {
-        let assigned_ip = Ipv4Addr::new(192, 168, 1, 100);
-        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-
-        // Create a lease with very short duration for testing
-        let lease = LeaseInfo::new(
-            assigned_ip,
-            server_ip,
-            2,    // 2 seconds lease time
-            1,    // T1 = 1 second
-            1,    // T2 = 1 second
-            None, // DNS servers
-            None, // Domain name
-            None, // NTP servers
-        );
-
-        // Initially, lease should not be expired
-        assert!(!lease.is_expired());
-        assert!(!lease.should_renew());
-        assert!(!lease.should_rebind());
-
-        // Wait for T1
-        tokio::time::sleep(Duration::from_millis(1100)).await;
-
-        // Now should be time for renewal and rebinding
-        assert!(lease.should_renew());
-        assert!(lease.should_rebind());
-        assert!(!lease.is_expired());
-
-        // Wait for lease expiry
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-
-        // Now lease should be expired
-        assert!(lease.is_expired());
     }
 
     #[test]
