@@ -7,6 +7,7 @@ use eui48::{MacAddress, EUI48LEN};
 use dhcp_protocol::*;
 
 const MAX_MESSAGE_SIZE: Option<u16> = Some(1280);
+const HTYPE_ETHERNET: u8 = 1;
 
 /// Builds common client messages with some parameters.
 pub struct MessageBuilder {
@@ -267,6 +268,9 @@ impl MessageBuilder {
 
     fn append_default_options(&self, options: &mut Options) {
         options.hostname = self.hostname.to_owned();
+        let mut client_id = vec![HTYPE_ETHERNET];
+        client_id.extend_from_slice(self.client_hardware_address.as_bytes());
+        options.client_id = Some(client_id);
     }
 
     fn parameter_list() -> Vec<u8> {
