@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use tokio::{select, signal};
 
 use dhcp_client::{Client, ClientError};
-use dhcp_client::network::NetlinkHandle;
+use dhcp_client::netlink::NetlinkHandle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

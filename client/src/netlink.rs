@@ -13,7 +13,6 @@ use {
     rtnetlink::{new_connection, Handle},
     std::net::IpAddr,
 };
-
 const MAX_MGMT_INTF_PRIORITY: u32 = 100;
 const MY_PRIORITY: u32 = 1;
 const ROUTE_PRIORITY: u32 = MAX_MGMT_INTF_PRIORITY - MY_PRIORITY;
@@ -263,12 +262,6 @@ impl NetlinkHandle {
     pub async fn replace_default_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         Err("replace_default_route not implemented for this platform".into())
     }
-}
-
-pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
-    let octets = netmask.octets();
-    let mask_u32 = ((octets[0] as u32) << 24) | ((octets[1] as u32) << 16) | ((octets[2] as u32) << 8) | (octets[3] as u32);
-    mask_u32.count_ones() as u8
 }
 
 pub fn is_same_subnet(interface_ip: Ipv4Addr, interface_subnet: u8, gateway: Ipv4Addr) -> bool {

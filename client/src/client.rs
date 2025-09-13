@@ -9,7 +9,7 @@ use log::{debug, error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
 use crate::builder::MessageBuilder;
-use crate::network::{netmask_to_prefix, NetlinkHandle};
+use crate::netlink::NetlinkHandle;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
 
 use std::fs;
@@ -645,7 +645,7 @@ impl Client {
             }
         };
 
-        use crate::network;
+        use crate::{netlink, utils};
         use std::collections::HashSet;
         let mut seen_destinations = HashSet::new();
         let mut cleaned_routes = Vec::new();
@@ -687,7 +687,7 @@ impl Client {
 
         let gw = default_gw.unwrap();
 
-        if !network::is_same_subnet(ip, subnet, gw) {
+        if !netlink::is_same_subnet(ip, subnet, gw) {
             warn!(
                 "Default gateway {} is not on the same subnet as assigned IP {} (/{} mask)",
                 gw, ip, subnet
@@ -1039,4 +1039,10 @@ async fn restore_dns_config() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(())
     }
+}
+
+pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
+    let octets = netmask.octets();
+    let mask_u32 = ((octets[0] as u32) << 24) | ((octets[1] as u32) << 16) | ((octets[2] as u32) << 8) | (octets[3] as u32);
+    mask_u32.count_ones() as u8
 }

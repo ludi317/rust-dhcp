@@ -7,7 +7,7 @@ use env_logger;
 use log::info;
 
 use dhcp_client::{
-    network::NetlinkHandle,
+    netlink::NetlinkHandle,
     Client, ClientError,
 };
 

@@ -1,6 +1,6 @@
 //! DHCP client executable
 
-use dhcp_client::network::NetlinkHandle;
+use dhcp_client::netlink::NetlinkHandle;
 use dhcp_client::{Client, ClientError};
 use env_logger;
 use log::{info, warn};

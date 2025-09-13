@@ -2,7 +2,7 @@
 
 mod builder;
 mod client;
-pub mod network;
+pub mod netlink;
 mod state;
 pub mod utils;
 
