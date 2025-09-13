@@ -5,12 +5,10 @@ DHCP message [de]serialization and message sending taken from this excellent rep
 
 ## Features
 
-- ✅ **Complete RFC 2131 Compliance** - Full DHCP state machine with proper transitions
+- ✅ **RFC 2131 Compliance** - Full DHCP state machine with proper transitions
 - ✅ **RFC 5277 Compliance** - Address Conflict Detection with ARP probes and announcements  
-- ✅ **Automatic Lease Management** - T1/T2 timers, renewal, rebinding, and expiration handling
-- ✅ **Modern Async/Await API** - Clean, readable async operations using Tokio
-- ✅ **Zero-Copy Operations** - Efficient packet processing
-- ✅ **Comprehensive Error Handling** - Structured error types with `thiserror`
+- ✅ **Lease Management** - T1/T2 timers, renewal, rebinding, and expiration handling
+- ✅ **Lease Application** - Applies network configuration returned by DHCP server, including adding IP, routes, DNS, NTP
 
 ## Running Client Executable
 ```bash
@@ -44,6 +42,5 @@ $ cargo run --bin client 11-22-33-44-55-66
 The examples only exchange messages with a server to obtain a lease. They do not configure a new IP address or apply any network settings.
 ```bash
 $ cargo run --example short_demo
-$ cargo run --example init_reboot
 $ cargo run --example inform
 ```

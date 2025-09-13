@@ -95,22 +95,6 @@ impl Client {
         self.previous_ip = Some(ip);
     }
 
-    /// Attempt to reuse a previous IP address (INIT-REBOOT process)
-    pub async fn init_reboot(&mut self, previous_ip: Ipv4Addr, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
-        info!("Starting INIT-REBOOT process for IP: {}", previous_ip);
-
-        self.transition_to(DhcpState::InitReboot)?;
-        self.transition_to(DhcpState::Rebooting)?;
-
-        let ack = self.reboot_phase(previous_ip).await?;
-
-        // We're now bound with the previous lease
-        self.handle_ack(&ack, netlink_handle).await?;
-        self.transition_to(DhcpState::Bound)?;
-
-        Ok(())
-    }
-
     /// Perform full DHCP configuration process (DORA sequence)
     pub async fn configure(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         info!("Starting DHCP configuration process");
