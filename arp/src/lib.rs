@@ -1,12 +1,12 @@
 //! ARP operations using raw sockets
 
 use eui48::MacAddress;
+use libc::c_int;
 use log::{debug, info, warn};
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
-use libc::c_int;
 
 // Protocol constants
 const BROADCAST_ADDR: [u8; 6] = [0xFF; 6];
@@ -178,7 +178,7 @@ impl ArpPacket {
 pub async fn arp_probe(interface_idx: u32, target_ip: Ipv4Addr, our_mac: MacAddress) -> ArpProbeResult {
     use rand::Rng;
 
-    info!("🔍 Sending ARP probes for {} on interface index {}", target_ip, interface_idx);
+    info!("🔍 Sending ARP probes for {}", target_ip);
 
     // Create ARP probe packet
     let arp_packet = ArpPacket::new_probe(our_mac, target_ip);
@@ -220,10 +220,7 @@ pub async fn arp_probe(interface_idx: u32, target_ip: Ipv4Addr, our_mac: MacAddr
 /// after sending the first of the two ARP Announcements; the sending of the
 /// second ARP Announcement may be completed asynchronously.
 pub async fn announce_address(interface_idx: u32, our_ip: Ipv4Addr, our_mac: MacAddress) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "📢 Broadcasting gratuitous ARP to announce {} on interface index {}",
-        our_ip, interface_idx
-    );
+    info!("📢 Broadcasting gratuitous ARP to announce {}", our_ip,);
 
     // Create gratuitous ARP packet
     let arp_packet = ArpPacket::new_announcement(our_mac, our_ip);
@@ -381,7 +378,6 @@ struct ArpReply {
 }
 
 fn parse_arp_reply(data: &[u8]) -> Option<ArpReply> {
-
     // Skip Ethernet header and check ARP packet
     let arp_start = ETHERNET_HEADER_SIZE;
     if data.len() < arp_start + ARP_HEADER_SIZE {

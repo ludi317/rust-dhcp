@@ -9,7 +9,7 @@ use log::{debug, error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
 use crate::builder::MessageBuilder;
-use crate::network::NetlinkHandle;
+use crate::network::{netmask_to_prefix, NetlinkHandle};
 use crate::state::{DhcpState, LeaseInfo, RetryState};
 
 /// Errors that can occur during DHCP client operations
@@ -619,16 +619,14 @@ impl Client {
         }
 
         // ip must be unicast
-        if !is_unicast(ack.your_ip_address) {
-            error!("ACK 'your_ip_address' is not unicast: {}", ack.your_ip_address);
+        let ip = ack.your_ip_address;
+        if !is_unicast(ip) {
+            error!("ACK 'your_ip_address' is not unicast: {}", ip);
             return Err(ClientError::InvalidLease);
         }
 
-        if ack.your_ip_address.is_link_local() {
-            warn!(
-                "IP Address in ACK from {} is a link-local unicast IP: {}",
-                server_id, ack.your_ip_address
-            );
+        if ip.is_link_local() {
+            warn!("IP Address in ACK from {} is a link-local unicast IP: {}", server_id, ip);
         }
 
         let lease_time = ack.options.address_time.unwrap();
@@ -647,7 +645,7 @@ impl Client {
             }
             None => {
                 warn!("ACK from {} lacks subnet mask, using default class-based mask", server_id);
-                let ip_bytes = ack.your_ip_address.octets();
+                let ip_bytes = ip.octets();
                 match ip_bytes[0] {
                     0..=127 => 8,
                     128..=191 => 16,
@@ -656,6 +654,7 @@ impl Client {
             }
         };
 
+        use crate::network;
         use std::collections::HashSet;
         let mut seen_destinations = HashSet::new();
         let mut cleaned_routes = Vec::new();
@@ -664,7 +663,7 @@ impl Client {
         // classless static routes validation
         if let Some(routes) = &ack.options.classless_static_routes {
             for route in routes {
-                let (dest, via, mask) = route;
+                let (dest, mask, via) = route;
 
                 // Skip if destination already seen or via address is not unicast
                 if seen_destinations.contains(dest) || !is_unicast(*via) {
@@ -695,25 +694,20 @@ impl Client {
             return Err(ClientError::InvalidLease);
         }
 
-        // warn if default gateway and ack.your_ip_address are not on the same subnet
-        if let Some(gw) = default_gw {
-            let mask_bits = (0xFFFFFFFFu32 << (32 - subnet)) & 0xFFFFFFFF;
-            let client_network = u32::from(ack.your_ip_address) & mask_bits;
-            let gateway_network = u32::from(gw) & mask_bits;
+        let gw = default_gw.unwrap();
 
-            if client_network != gateway_network {
-                warn!(
-                    "Default gateway {} is not on the same subnet as assigned IP {} (/{} mask)",
-                    gw, ack.your_ip_address, subnet
-                );
-            }
+        if !network::is_same_subnet(ip, subnet, gw) {
+            warn!(
+                "Default gateway {} is not on the same subnet as assigned IP {} (/{} mask)",
+                gw, ip, subnet
+            );
         }
 
         // check if lease has changed
 
         info!("✅ DHCP Lease received:");
-        info!("   📍 Your IP: {}/{}", ack.your_ip_address, subnet);
-        info!("   🚪 Gateway: {}", default_gw.unwrap());
+        info!("   📍 Your IP: {}/{}", ip, subnet);
+        info!("   🚪 Gateway: {}", gw);
         info!("   ⏰ Lease Duration: {}s", lease_time);
 
         if let Some(ref dns_servers) = ack.options.domain_name_servers {
@@ -733,12 +727,12 @@ impl Client {
         let our_mac = netlink_handle.interface_mac;
 
         // Perform ARP probe to make sure no one else is using this ip address
-        match arp_probe(interface_idx, ack.your_ip_address, our_mac).await {
+        match arp_probe(interface_idx, ip, our_mac).await {
             ArpProbeResult::Available => {
-                info!("✅ ARP probe successful - IP address {} is available", ack.your_ip_address);
+                info!("✅ ARP probe successful - IP address {} is available", ip);
             }
             ArpProbeResult::InUse => {
-                warn!("❌ IP address {} is already in use (detected via ARP)", ack.your_ip_address);
+                warn!("❌ IP address {} is already in use (detected via ARP)", ip);
                 return Err(ClientError::IpConflict);
             }
             ArpProbeResult::Error(e) => {
@@ -747,17 +741,17 @@ impl Client {
         }
 
         // Send ARP announcements
-        if let Err(e) = announce_address(interface_idx, ack.your_ip_address, our_mac).await {
+        if let Err(e) = announce_address(interface_idx, ip, our_mac).await {
             warn!("⚠️  Failed to send gratuitous ARP announcement: {}", e);
         }
 
         info!(
             "🔧 Assigning IP address {}/{} to interface {}",
-            ack.your_ip_address, subnet, netlink_handle.interface_name
+            ip, subnet, netlink_handle.interface_name
         );
 
         // Assign the IP address
-        match netlink_handle.add_interface_ip(ack.your_ip_address, subnet).await {
+        match netlink_handle.add_interface_ip(ip, subnet).await {
             Ok(()) => {
                 info!("✅ Successfully assigned IP address to interface");
             }
@@ -769,11 +763,46 @@ impl Client {
                 return Err(ClientError::FailedToApplyNetworkConfig);
             }
         }
+        const MAX_MGMT_INTF_PRIORITY: u32 = 100;
+        const MY_PRIORITY: u32 = 1;
+        let route_priority = MAX_MGMT_INTF_PRIORITY - MY_PRIORITY;
 
-        // TODO: Apply additional configuration like routes, DNS, etc.
+        // add default gateway route
+        match netlink_handle
+            .replace_route(Ipv4Addr::UNSPECIFIED, 0, gw, ip, subnet, route_priority)
+            .await
+        {
+            Ok(()) => {
+                info!("✅ Successfully added {} as default gateway", gw);
+            }
+            Err(e) => {
+                warn!("⚠️  Failed to add {} as default gateway: {}", gw, e);
+                // carry on
+            }
+        }
+
+        // add classless static routes
+        for route in &cleaned_routes {
+            let (dest, mask, via) = route;
+            let mask = netmask_to_prefix(*mask);
+            if mask == 0 {
+                continue;
+            }
+            match netlink_handle.replace_route(*dest, mask, *via, ip, subnet, route_priority).await {
+                Ok(()) => {
+                    info!("✅ Successfully added route: {}/{} via {}", dest, mask, gw);
+                }
+                Err(e) => {
+                    warn!("⚠️  Failed to add route: {}/{} via {}: {}", dest, mask, gw, e);
+                    // carry on
+                }
+            }
+        }
+
+        // TODO: Apply additional configuration like DNS, etc.
 
         self.lease = Some(LeaseInfo::new(
-            ack.your_ip_address,
+            ip,
             subnet,
             default_gw.unwrap(),
             cleaned_routes,
@@ -867,8 +896,6 @@ mod tests {
     use super::*;
     use dhcp_protocol::{HardwareType, Message, MessageType, OperationCode, Options};
     use eui48::MacAddress;
-    use std::time::Duration;
-
     fn create_test_mac() -> MacAddress {
         MacAddress::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])
     }

@@ -6,10 +6,11 @@ use std::net::Ipv4Addr;
 use {
     futures::stream::TryStreamExt,
     netlink_packet_route::link::LinkFlags,
+    netlink_packet_route::route::RouteScope,
     rtnetlink::LinkUnspec,
+    rtnetlink::RouteMessageBuilder,
     rtnetlink::{new_connection, Handle},
     std::net::IpAddr,
-    rtnetlink::RouteMessageBuilder
 };
 
 #[cfg(target_os = "linux")]
@@ -50,11 +51,9 @@ impl NetlinkHandle {
                     break;
                 }
             }
-
         } else {
             return Err(format!("Interface '{}' not found", interface_name).into());
         };
-
 
         Ok(NetlinkHandle {
             handle,
@@ -89,12 +88,32 @@ impl NetlinkHandle {
         Ok(())
     }
 
-    pub async fn replace_default_route(&self, gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
-        // let route = RouteMessageBuilder::<Ipv4Addr>::new()
-        //     .destination_prefix(dest.ip(), dest.prefix())
-        //     .gateway(gateway)
-        //     .build();
-        // self.handle.route().add(route).replace().execute().await?;
+    pub async fn add_host_route(&self, gateway: Ipv4Addr, priority: u32) -> Result<(), Box<dyn std::error::Error>> {
+        // ip route add `gw`/32 via `ifname`
+        let route = RouteMessageBuilder::<Ipv4Addr>::new()
+            .output_interface(self.interface_idx)
+            .scope(RouteScope::Link)
+            .destination_prefix(gateway, 32)
+            .priority(priority)
+            .build();
+
+        self.handle.route().add(route).replace().execute().await?;
+        Ok(())
+    }
+
+    pub async fn replace_route(
+        &self, dst: Ipv4Addr, dst_mask: u8, gw: Ipv4Addr, if_ip: Ipv4Addr, if_subnet: u8, priority: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !is_same_subnet(if_ip, if_subnet, gw) {
+            self.add_host_route(gw, priority).await?
+        }
+
+        let route = RouteMessageBuilder::<Ipv4Addr>::new()
+            .destination_prefix(dst, dst_mask)
+            .gateway(gw)
+            .priority(priority)
+            .build();
+        self.handle.route().add(route).replace().execute().await?;
         Ok(())
     }
 }
@@ -195,6 +214,22 @@ impl NetlinkHandle {
         Ok(())
     }
 
+    pub async fn add_host_route(&self, _gateway: Ipv4Addr, _priority: u32) -> Result<(), Box<dyn std::error::Error>> {
+        Err("add_host_route not implemented for this platform".into())
+    }
+
+    pub async fn replace_route(
+        &self, 
+        _dst: Ipv4Addr, 
+        _dst_mask: u8, 
+        _gw: Ipv4Addr, 
+        _if_ip: Ipv4Addr, 
+        _if_subnet: u8, 
+        _priority: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("replace_route not implemented for this platform".into())
+    }
+
     pub async fn replace_default_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         Err("replace_default_route not implemented for this platform".into())
     }
@@ -214,4 +249,11 @@ pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
     let octets = netmask.octets();
     let mask_u32 = ((octets[0] as u32) << 24) | ((octets[1] as u32) << 16) | ((octets[2] as u32) << 8) | (octets[3] as u32);
     mask_u32.count_ones() as u8
+}
+
+pub fn is_same_subnet(interface_ip: Ipv4Addr, interface_subnet: u8, gateway: Ipv4Addr) -> bool {
+    let mask_bits = (0xFFFFFFFFu32 << (32 - interface_subnet)) & 0xFFFFFFFF;
+    let client_network = u32::from(interface_ip) & mask_bits;
+    let gateway_network = u32::from(gateway) & mask_bits;
+    client_network == gateway_network
 }
