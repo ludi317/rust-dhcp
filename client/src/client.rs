@@ -870,6 +870,59 @@ impl Client {
         let (_, message) = self.wait_for_message_types(&[MessageType::DhcpAck, MessageType::DhcpNak]).await?;
         Ok(message)
     }
+
+    /// Remove all network configuration applied by the current DHCP lease
+    async fn undo_lease(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(lease) = &self.lease {
+            info!("🧹 Removing network configuration for lease");
+
+            if let Err(e) = apply_ntp_config(&*vec![]).await {
+                warn!("⚠️  Failed to remove NTP servers: {}", e);
+            }
+
+            if let Err(e) = restore_dns_config().await {
+                warn!("⚠️  Failed to restore original DNS configuration: {}", e);
+            }
+
+            // remove static routes
+            for (dest, mask, via) in &lease.routes {
+                let prefix = netmask_to_prefix(*mask);
+                if let Err(e) = netlink_handle
+                    .delete_route(*dest, prefix, *via, lease.assigned_ip, lease.subnet_prefix)
+                    .await
+                {
+                    warn!("⚠️  Failed to remove route {}/{} via {}: {}", dest, prefix, via, e);
+                } else {
+                    info!("✅ Removed route {}/{} via {}", dest, prefix, via);
+                }
+            }
+
+            // remove default gateway route
+            if let Err(e) = netlink_handle
+                .delete_route(Ipv4Addr::UNSPECIFIED, 0, lease.gateway_ip, lease.assigned_ip, lease.subnet_prefix)
+                .await
+            {
+                warn!("⚠️  Failed to remove default gateway route via {}: {}", lease.gateway_ip, e);
+            } else {
+                info!("✅ Removed default gateway route via {}", lease.gateway_ip);
+            }
+
+            // remove IP address from interface
+            if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
+                warn!(
+                    "⚠️  Failed to remove IP address {}/{} from interface: {}",
+                    lease.assigned_ip, lease.subnet_prefix, e
+                );
+            } else {
+                info!("✅ Removed IP address {}/{} from interface", lease.assigned_ip, lease.subnet_prefix);
+            }
+
+            info!("🧹 Lease removal completed");
+        }
+        
+        self.lease = None;
+        Ok(())
+    }
 }
 
 fn is_unicast(ip: Ipv4Addr) -> bool {
