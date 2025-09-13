@@ -876,7 +876,7 @@ impl Client {
         if let Some(lease) = &self.lease {
             info!("🧹 Removing network configuration for lease");
 
-            if let Err(e) = apply_ntp_config(&*vec![]).await {
+            if let Err(e) = apply_ntp_config(&Vec::new()).await {
                 warn!("⚠️  Failed to remove NTP servers: {}", e);
             }
 
@@ -929,6 +929,35 @@ fn is_unicast(ip: Ipv4Addr) -> bool {
     !(ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() || ip.is_loopback())
 }
 
+/// Apply NTP configuration by restarting NTP service with new servers
+async fn apply_ntp_config(ntp_servers: &[Ipv4Addr]) -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Command;
+
+    let mut servers = ntp_servers.to_vec();
+    servers.truncate(3);
+
+    let mut args = vec!["restart".to_string()];
+
+    for ip in &servers {
+        args.push("-p".to_string());
+        args.push(ip.to_string());
+    }
+
+    if servers.is_empty() {
+        args.push("-p".to_string());
+        args.push("pool.ntp.org".to_string()); // server of last resort
+    }
+
+    let output = Command::new("/etc/init.d/ntp").args(&args).output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("restarting ntp failed: {}", stderr).into());
+    }
+
+    info!("📝 Applied {} NTP servers and restarted NTP service", servers.len());
+    Ok(())
+}
 
 /// Apply DNS configuration by updating /etc/resolv.conf
 async fn apply_dns_config(dns_servers: &[Ipv4Addr], domain_name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
