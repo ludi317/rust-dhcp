@@ -784,12 +784,30 @@ impl Client {
             }
         }
 
-        // TODO: Apply additional configuration like DNS, etc.
+        // Apply DNS configuration
+        if let Some(ref dns_servers) = ack.options.domain_name_servers {
+            if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref()).await {
+                warn!("⚠️  Failed to apply DNS configuration: {}", e);
+                // Continue anyway - DNS failure shouldn't prevent DHCP from working
+            } else {
+                info!("✅ Successfully applied DNS configuration");
+            }
+        }
+
+        // Apply NTP servers
+        if let Some(ref ntp_servers) = ack.options.ntp_servers {
+            if let Err(e) = apply_ntp_config(ntp_servers).await {
+                warn!("⚠️  Failed to apply NTP configuration: {}", e);
+                // Continue anyway - NTP failure shouldn't prevent DHCP from working
+            } else {
+                info!("✅ Successfully applied NTP configuration");
+            }
+        }
 
         self.lease = Some(LeaseInfo::new(
             ip,
             subnet,
-            default_gw.unwrap(),
+            gw,
             cleaned_routes,
             server_id,
             lease_time,
