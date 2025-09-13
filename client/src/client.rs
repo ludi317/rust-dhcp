@@ -747,15 +747,9 @@ impl Client {
                 return Err(ClientError::FailedToApplyNetworkConfig);
             }
         }
-        const MAX_MGMT_INTF_PRIORITY: u32 = 100;
-        const MY_PRIORITY: u32 = 1;
-        let route_priority = MAX_MGMT_INTF_PRIORITY - MY_PRIORITY;
 
         // add default gateway route
-        match netlink_handle
-            .replace_route(Ipv4Addr::UNSPECIFIED, 0, gw, ip, subnet, route_priority)
-            .await
-        {
+        match netlink_handle.add_route(Ipv4Addr::UNSPECIFIED, 0, gw, ip, subnet).await {
             Ok(()) => {
                 info!("✅ Successfully added {} as default gateway", gw);
             }
@@ -767,17 +761,17 @@ impl Client {
 
         // add classless static routes
         for route in &cleaned_routes {
-            let (dest, mask, via) = route;
-            let mask = netmask_to_prefix(*mask);
-            if mask == 0 {
+            let (dst, mask, via) = route;
+            let dst_prefix_len = netmask_to_prefix(*mask);
+            if dst_prefix_len == 0 {
                 continue;
             }
-            match netlink_handle.replace_route(*dest, mask, *via, ip, subnet, route_priority).await {
+            match netlink_handle.add_route(*dst, dst_prefix_len, *via, ip, subnet).await {
                 Ok(()) => {
-                    info!("✅ Successfully added route: {}/{} via {}", dest, mask, gw);
+                    info!("✅ Successfully added route: {}/{} via {}", dst, dst_prefix_len, gw);
                 }
                 Err(e) => {
-                    warn!("⚠️  Failed to add route: {}/{} via {}: {}", dest, mask, gw, e);
+                    warn!("⚠️  Failed to add route: {}/{} via {}: {}", dst, dst_prefix_len, gw, e);
                     // carry on
                 }
             }

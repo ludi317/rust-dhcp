@@ -7,11 +7,16 @@ use {
     futures::stream::TryStreamExt,
     netlink_packet_route::link::LinkFlags,
     netlink_packet_route::route::RouteScope,
+    rtnetlink::AddressMessageBuilder,
     rtnetlink::LinkUnspec,
     rtnetlink::RouteMessageBuilder,
     rtnetlink::{new_connection, Handle},
     std::net::IpAddr,
 };
+
+const MAX_MGMT_INTF_PRIORITY: u32 = 100;
+const MY_PRIORITY: u32 = 1;
+const ROUTE_PRIORITY: u32 = MAX_MGMT_INTF_PRIORITY - MY_PRIORITY;
 
 #[cfg(target_os = "linux")]
 pub struct NetlinkHandle {
@@ -88,32 +93,68 @@ impl NetlinkHandle {
         Ok(())
     }
 
-    pub async fn add_host_route(&self, gateway: Ipv4Addr, priority: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_host_route(&self, gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         // ip route add `gw`/32 via `ifname`
         let route = RouteMessageBuilder::<Ipv4Addr>::new()
             .output_interface(self.interface_idx)
             .scope(RouteScope::Link)
             .destination_prefix(gateway, 32)
-            .priority(priority)
+            .priority(ROUTE_PRIORITY)
             .build();
 
         self.handle.route().add(route).replace().execute().await?;
         Ok(())
     }
 
-    pub async fn replace_route(
-        &self, dst: Ipv4Addr, dst_mask: u8, gw: Ipv4Addr, if_ip: Ipv4Addr, if_subnet: u8, priority: u32,
+    pub async fn add_route(
+        &self, dst: Ipv4Addr, dst_prefix_len: u8, gw: Ipv4Addr, if_ip: Ipv4Addr, if_subnet: u8,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !is_same_subnet(if_ip, if_subnet, gw) {
-            self.add_host_route(gw, priority).await?
+            self.add_host_route(gw).await?
         }
 
         let route = RouteMessageBuilder::<Ipv4Addr>::new()
-            .destination_prefix(dst, dst_mask)
+            .destination_prefix(dst, dst_prefix_len)
             .gateway(gw)
-            .priority(priority)
+            .priority(ROUTE_PRIORITY)
             .build();
         self.handle.route().add(route).replace().execute().await?;
+        Ok(())
+    }
+
+    pub async fn delete_interface_ip(&self, ip_addr: Ipv4Addr, prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        let message = AddressMessageBuilder::<Ipv4Addr>::new()
+            .index(self.interface_idx)
+            .address(ip_addr, prefix_len)
+            .build();
+        self.handle.address().del(message).execute().await?;
+        Ok(())
+    }
+
+    pub async fn delete_host_route(&self, gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
+        let route = RouteMessageBuilder::<Ipv4Addr>::new()
+            .output_interface(self.interface_idx)
+            .scope(RouteScope::Link)
+            .destination_prefix(gateway, 32)
+            .priority(ROUTE_PRIORITY)
+            .build();
+
+        self.handle.route().del(route).execute().await?;
+        Ok(())
+    }
+
+    pub async fn delete_route(
+        &self, dst: Ipv4Addr, dst_prefix_len: u8, gw: Ipv4Addr, if_ip: Ipv4Addr, if_subnet: u8,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !is_same_subnet(if_ip, if_subnet, gw) {
+            self.delete_host_route(gw).await?
+        }
+        let route = RouteMessageBuilder::<Ipv4Addr>::new()
+            .destination_prefix(dst, dst_prefix_len)
+            .gateway(gw)
+            .priority(ROUTE_PRIORITY)
+            .build();
+        self.handle.route().del(route).execute().await?;
         Ok(())
     }
 }
@@ -191,58 +232,37 @@ impl NetlinkHandle {
         Ok(ip)
     }
 
-    pub async fn add_interface_ip(&self, ip_addr: Ipv4Addr, prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
-        use std::process::Command;
-
-        let output = Command::new("sudo")
-            .args(&[
-                "ifconfig",
-                &self.interface_name,
-                "inet",
-                &ip_addr.to_string(),
-                "netmask",
-                &prefix_to_netmask(prefix_len),
-                "alias",
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Failed to add IP address: {}", stderr).into());
-        }
-
-        Ok(())
+    pub async fn add_interface_ip(&self, _ip_addr: Ipv4Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        Err("add_interface_ip not implemented for this platform".into())
     }
 
-    pub async fn add_host_route(&self, _gateway: Ipv4Addr, _priority: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_host_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         Err("add_host_route not implemented for this platform".into())
     }
 
-    pub async fn replace_route(
-        &self, 
-        _dst: Ipv4Addr, 
-        _dst_mask: u8, 
-        _gw: Ipv4Addr, 
-        _if_ip: Ipv4Addr, 
-        _if_subnet: u8, 
-        _priority: u32,
+    pub async fn add_route(
+        &self, _dst: Ipv4Addr, _dst_mask: u8, _gw: Ipv4Addr, _if_ip: Ipv4Addr, _if_subnet: u8,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("replace_route not implemented for this platform".into())
+        Err("add_route not implemented for this platform".into())
+    }
+
+    pub async fn delete_interface_ip(&self, _ip_addr: Ipv4Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        Err("delete_interface_ip not implemented for this platform".into())
+    }
+
+    pub async fn delete_host_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
+        Err("delete_host_route not implemented for this platform".into())
+    }
+
+    pub async fn delete_route(
+        &self, _dst: Ipv4Addr, _dst_mask: u8, _gw: Ipv4Addr, _if_ip: Ipv4Addr, _if_subnet: u8,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("delete_route not implemented for this platform".into())
     }
 
     pub async fn replace_default_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         Err("replace_default_route not implemented for this platform".into())
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn prefix_to_netmask(prefix_len: u8) -> String {
-    let mask = !((1u32 << (32 - prefix_len)) - 1);
-    let a = (mask >> 24) as u8;
-    let b = (mask >> 16) as u8;
-    let c = (mask >> 8) as u8;
-    let d = mask as u8;
-    format!("{}.{}.{}.{}", a, b, c, d)
 }
 
 pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
