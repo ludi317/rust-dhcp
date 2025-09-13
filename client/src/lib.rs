@@ -2,7 +2,9 @@
 
 mod builder;
 mod client;
+mod dns;
 pub mod netlink;
+mod ntp;
 mod state;
 
 use std::str::FromStr;

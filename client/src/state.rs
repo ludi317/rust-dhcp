@@ -72,8 +72,8 @@ pub struct LeaseInfo {
 impl LeaseInfo {
     /// Create new lease information
     pub fn new(
-        assigned_ip: Ipv4Addr, subnet_prefix: u8, gateway_ip: Ipv4Addr, routes: Vec<(Ipv4Addr, Ipv4Addr, Ipv4Addr)>, server_id: Ipv4Addr, lease_time: u32,
-        renewal_time: u32, rebinding_time: u32, dns_servers: Option<Vec<Ipv4Addr>>, domain_name: Option<String>,
+        assigned_ip: Ipv4Addr, subnet_prefix: u8, gateway_ip: Ipv4Addr, routes: Vec<(Ipv4Addr, Ipv4Addr, Ipv4Addr)>, server_id: Ipv4Addr,
+        lease_time: u32, renewal_time: u32, rebinding_time: u32, dns_servers: Option<Vec<Ipv4Addr>>, domain_name: Option<String>,
         ntp_servers: Option<Vec<Ipv4Addr>>,
     ) -> Self {
         Self {
