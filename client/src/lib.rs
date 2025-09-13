@@ -4,7 +4,6 @@ mod builder;
 mod client;
 pub mod netlink;
 mod state;
-pub mod utils;
 
 use std::str::FromStr;
 // Re-export the main types

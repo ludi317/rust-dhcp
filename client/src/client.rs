@@ -645,7 +645,7 @@ impl Client {
             }
         };
 
-        use crate::{netlink, utils};
+        use crate::netlink;
         use std::collections::HashSet;
         let mut seen_destinations = HashSet::new();
         let mut cleaned_routes = Vec::new();
