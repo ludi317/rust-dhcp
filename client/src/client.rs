@@ -62,8 +62,6 @@ pub struct Client {
     xid: u32,
     /// Last offered IP (for REQUEST messages)
     offered_ip: Option<Ipv4Addr>,
-    /// Previous IP address (for INIT-REBOOT)
-    previous_ip: Option<Ipv4Addr>,
 }
 
 impl Client {
@@ -84,7 +82,6 @@ impl Client {
             retry_state,
             xid,
             offered_ip: None,
-            previous_ip: None,
         })
     }
 
@@ -96,11 +93,6 @@ impl Client {
     /// Get current lease information
     pub fn lease(&self) -> Option<&LeaseInfo> {
         self.lease.as_ref()
-    }
-
-    /// Set a previous IP address for INIT-REBOOT attempts
-    pub fn set_previous_ip(&mut self, ip: Ipv4Addr) {
-        self.previous_ip = Some(ip);
     }
 
     /// Perform full DHCP configuration process (DORA sequence)
