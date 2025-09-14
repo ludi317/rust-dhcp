@@ -61,7 +61,7 @@ impl DhcpFramed {
         socket.set_nonblocking(true)?;
 
         // Bind to address
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), DHCP_PORT_CLIENT);
         socket.bind(&addr.into())?;
         
         // Convert to std socket then to tokio socket

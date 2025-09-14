@@ -162,7 +162,7 @@ impl LeaseInfo {
             _ => Duration::from_secs(0),
         };
 
-        (remaining / 2).max(Duration::from_secs(60))
+        (remaining / 2).max(Duration::from_secs(16))
     }
 }
 

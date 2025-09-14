@@ -32,8 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Detected IP: {}", assigned_ip);
     info!("Detected MAC: {}", client_mac);
 
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 68);
-
     info!("📡 DHCP INFORM demonstration");
 
     // Create RFC compliant client

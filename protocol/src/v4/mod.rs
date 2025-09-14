@@ -26,7 +26,7 @@ pub struct Message {
     pub hardware_options: u8,
     pub transaction_id: u32,
     pub seconds: u16,
-    pub is_broadcast: bool,
+    pub broadcast_reply: bool,
     pub client_ip_address: Ipv4Addr,
     pub your_ip_address: Ipv4Addr,
     pub server_ip_address: Ipv4Addr,
@@ -88,7 +88,7 @@ impl fmt::Display for Message {
         writeln!(f, "{:32} | {}", "Hardware options", self.hardware_options)?;
         writeln!(f, "{:32} | {}", "Transaction ID", self.transaction_id)?;
         writeln!(f, "{:32} | {}", "Seconds", self.seconds)?;
-        writeln!(f, "{:32} | {}", "Broadcast flag", self.is_broadcast)?;
+        writeln!(f, "{:32} | {}", "Broadcast flag", self.broadcast_reply)?;
         writeln!(f, "{:32} | {}", "Client IP address", self.client_ip_address)?;
         writeln!(f, "{:32} | {}", "Your IP address", self.your_ip_address)?;
         writeln!(f, "{:32} | {}", "Server IP address", self.server_ip_address)?;

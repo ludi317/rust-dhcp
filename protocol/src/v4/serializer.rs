@@ -83,7 +83,7 @@ impl Message {
         // https://tools.ietf.org/html/rfc2131#section-2
         // https://tools.ietf.org/html/rfc1700#page-3
         // Leftmost bit (0 bit) is most significant
-        cursors[CURSOR_INDEX_MAIN].put_u16_be(if self.is_broadcast { 0x8000 } else { 0x0000 });
+        cursors[CURSOR_INDEX_MAIN].put_u16_be(if self.broadcast_reply { 0x8000 } else { 0x0000 });
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.client_ip_address));
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.your_ip_address));
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.server_ip_address));
@@ -503,7 +503,7 @@ mod tests {
             hardware_options: 0,
             transaction_id: 0x12345678,
             seconds: 0,
-            is_broadcast: true,
+            broadcast_reply: true,
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             server_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -700,7 +700,7 @@ mod tests {
             hardware_options: 0,
             transaction_id: 0xDEADBEEF,
             seconds: 42,
-            is_broadcast: true,
+            broadcast_reply: true,
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(192, 168, 1, 100),
             server_ip_address: Ipv4Addr::new(192, 168, 1, 1),
@@ -733,7 +733,7 @@ mod tests {
         assert_eq!(original_message.hardware_options, deserialized_message.hardware_options);
         assert_eq!(original_message.transaction_id, deserialized_message.transaction_id);
         assert_eq!(original_message.seconds, deserialized_message.seconds);
-        assert_eq!(original_message.is_broadcast, deserialized_message.is_broadcast);
+        assert_eq!(original_message.broadcast_reply, deserialized_message.broadcast_reply);
         assert_eq!(original_message.client_ip_address, deserialized_message.client_ip_address);
         assert_eq!(original_message.your_ip_address, deserialized_message.your_ip_address);
         assert_eq!(original_message.server_ip_address, deserialized_message.server_ip_address);
@@ -811,7 +811,7 @@ mod tests {
             hardware_options: 0,
             transaction_id: 0x12345678,
             seconds: 0,
-            is_broadcast: false,
+            broadcast_reply: false,
             client_ip_address: Ipv4Addr::UNSPECIFIED,
             your_ip_address: Ipv4Addr::UNSPECIFIED,
             server_ip_address: Ipv4Addr::UNSPECIFIED,
@@ -853,7 +853,7 @@ mod tests {
         options.dhcp_message_type = Some(MessageType::DhcpDiscover);
 
         let mut original_message = create_test_message();
-        original_message.is_broadcast = true;
+        original_message.broadcast_reply = true;
 
         // Serialize to bytes
         let mut buffer = vec![0u8; 1024];
@@ -867,11 +867,11 @@ mod tests {
         let deserialized_message = deserialize_result.unwrap();
 
         // Broadcast flag should be preserved
-        assert_eq!(original_message.is_broadcast, deserialized_message.is_broadcast);
-        assert_eq!(true, deserialized_message.is_broadcast);
+        assert_eq!(original_message.broadcast_reply, deserialized_message.broadcast_reply);
+        assert_eq!(true, deserialized_message.broadcast_reply);
 
         // Test with broadcast = false
-        original_message.is_broadcast = false;
+        original_message.broadcast_reply = false;
         let serialize_result = original_message.to_bytes(&mut buffer, None);
         assert!(serialize_result.is_ok());
         let bytes_written = serialize_result.unwrap();
@@ -880,6 +880,6 @@ mod tests {
         assert!(deserialize_result.is_ok());
         let deserialized_message = deserialize_result.unwrap();
 
-        assert_eq!(false, deserialized_message.is_broadcast);
+        assert_eq!(false, deserialized_message.broadcast_reply);
     }
 }

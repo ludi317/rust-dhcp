@@ -45,7 +45,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: true,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -82,7 +82,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: true,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -116,7 +116,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: true,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -149,7 +149,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: false,
 
             client_ip_address,
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -181,7 +181,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: false,
 
             client_ip_address,
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -216,7 +216,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: false,
 
             client_ip_address,
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
@@ -251,7 +251,7 @@ impl MessageBuilder {
 
             transaction_id,
             seconds: Default::default(),
-            is_broadcast: false,
+            broadcast_reply: false,
 
             client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
             your_ip_address: Ipv4Addr::new(0, 0, 0, 0),

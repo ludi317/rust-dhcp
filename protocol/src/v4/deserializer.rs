@@ -72,7 +72,7 @@ impl Message {
             // https://tools.ietf.org/html/rfc2131#section-2
             // https://tools.ietf.org/html/rfc1700#page-3
             // Leftmost bit (0 bit) is most significant
-            is_broadcast: cursor.get_u16_be() & 0x8000 != 0,
+            broadcast_reply: cursor.get_u16_be() & 0x8000 != 0,
             client_ip_address: Ipv4Addr::from(cursor.get_u32_be()),
             your_ip_address: Ipv4Addr::from(cursor.get_u32_be()),
             server_ip_address: Ipv4Addr::from(cursor.get_u32_be()),
