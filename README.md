@@ -1,12 +1,13 @@
 # Rust DHCP Client
 
-A Rust implementation of DHCP (Dynamic Host Configuration Protocol) client using async/await.
-DHCP message [de]serialization and message sending taken from this excellent repo: https://github.com/lancastr/rust-dhcp
+A Rust implementation of DHCP (Dynamic Host Configuration Protocol) client.
+DHCP message exchanges with a DHCP server is supported on Linux and MacOS. 
+Application of network configuration is only supported on Linux.
 
 ## Features
 
-- ✅ **RFC 2131 Compliance** - Full DHCP state machine with proper transitions
-- ✅ **RFC 5277 Compliance** - Address Conflict Detection with ARP probes and announcements  
+- ✅ **DHCP client state machine** (RFC 2131)
+- ✅ **Address Conflict Detection**  ARP probes and announcements (RFC 5227)  
 - ✅ **Lease Management** - T1/T2 timers, renewal, rebinding, and expiration handling
 - ✅ **Lease Application** - Applies network configuration returned by DHCP server, including adding IP, routes, DNS, NTP
 
@@ -44,3 +45,6 @@ The examples only exchange messages with a server to obtain a lease. They do not
 $ cargo run --example short_demo
 $ cargo run --example inform
 ```
+
+## Acknowledgements
+DHCP message [de]serialiation taken from https://github.com/lancastr/rust-dhcp
