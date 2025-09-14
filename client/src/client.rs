@@ -712,8 +712,10 @@ impl Client {
                 lease.lease_time = lease_time;
                 lease.renewal_time = renewal_time;
                 lease.rebinding_time = rebinding_time;
+                return Ok(());
             }
-            return Ok(());
+            info!("🆕 Lease has changed!");
+            self.undo_lease(netlink_handle).await;
         }
 
         info!("✅ DHCP Lease received:");
@@ -912,7 +914,7 @@ impl Client {
     }
 
     /// Remove all network configuration applied by the current DHCP lease
-    async fn undo_lease(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), Box<dyn std::error::Error>> {
+    async fn undo_lease(&mut self, netlink_handle: &NetlinkHandle) {
         if let Some(lease) = &self.lease {
             info!("🧹 Removing network configuration for lease");
 
@@ -961,7 +963,6 @@ impl Client {
         }
 
         self.lease = None;
-        Ok(())
     }
 }
 
