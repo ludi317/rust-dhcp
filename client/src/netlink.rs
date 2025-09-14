@@ -232,7 +232,7 @@ impl NetlinkHandle {
     }
 
     pub async fn add_interface_ip(&self, _ip_addr: Ipv4Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
-        Err("add_interface_ip not implemented for this platform".into())
+        Ok(())
     }
 
     pub async fn add_host_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
