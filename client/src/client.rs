@@ -143,6 +143,7 @@ impl Client {
             // Check if lease has expired
             if lease.is_expired() {
                 warn!("Lease has expired, returning to INIT state");
+                self.undo_lease(netlink_handle).await;
                 self.transition_to(DhcpState::Init)?;
                 return Err(ClientError::LeaseExpired);
             }
