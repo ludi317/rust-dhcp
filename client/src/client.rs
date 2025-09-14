@@ -62,6 +62,8 @@ pub struct Client {
     xid: u32,
     /// Last offered IP (for REQUEST messages)
     offered_ip: Option<Ipv4Addr>,
+    /// Whether the IP address already existed when we tried to assign it
+    ip_already_existed: bool,
 }
 
 impl Client {
@@ -82,6 +84,7 @@ impl Client {
             retry_state,
             xid,
             offered_ip: None,
+            ip_already_existed: false,
         })
     }
 
@@ -776,10 +779,12 @@ impl Client {
         match netlink_handle.add_interface_ip(ip, subnet).await {
             Ok(()) => {
                 info!("✅ Successfully assigned IP address to interface");
+                self.ip_already_existed = false;
             }
             Err(e) => {
                 if is_eexist_error(&e) {
                     info!("✋ IP address already assigned to interface");
+                    self.ip_already_existed = true;
                 } else {
                     warn!(
                         "❌  Failed to assign IP address to interface {}: {}",
@@ -958,14 +963,18 @@ impl Client {
                 info!("✅ Removed default gateway route via {}", lease.gateway_ip);
             }
 
-            // remove IP address from interface
-            if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
-                warn!(
-                    "⚠️  Failed to remove IP address {}/{} from interface: {}",
-                    lease.assigned_ip, lease.subnet_prefix, e
-                );
+            // remove IP address from interface (only if we assigned it)
+            if self.ip_already_existed {
+                info!("✋ Leaving IP address {}/{} on interface (it existed before DHCP)", lease.assigned_ip, lease.subnet_prefix);
             } else {
-                info!("✅ Removed IP address {}/{} from interface", lease.assigned_ip, lease.subnet_prefix);
+                if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
+                    warn!(
+                        "⚠️  Failed to remove IP address {}/{} from interface: {}",
+                        lease.assigned_ip, lease.subnet_prefix, e
+                    );
+                } else {
+                    info!("✅ Removed IP address {}/{} from interface", lease.assigned_ip, lease.subnet_prefix);
+                }
             }
 
             info!("🧹 Lease removal completed");
