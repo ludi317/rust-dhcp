@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Gracefully release the lease
                 info!("📤 Releasing DHCP lease...");
-                if let Err(e) = client.release().await {
+                if let Err(e) = client.release("Shutdown signal received".to_string()).await {
                     warn!("⚠️  Failed to release lease: {}", e);
                 } else {
                     info!("✅ Lease released successfully");

@@ -15,10 +15,7 @@ use crate::ntp::apply_ntp_config;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
 
 #[cfg(target_os = "linux")]
-use {
-    libc::EEXIST,
-    rtnetlink
-};
+use {libc::EEXIST, rtnetlink};
 
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
@@ -226,20 +223,16 @@ impl Client {
     }
 
     /// Release the current lease
-    pub async fn release(&mut self) -> Result<(), ClientError> {
+    pub async fn release(&mut self, reason: String) -> Result<(), ClientError> {
         if let Some(lease) = self.lease.clone() {
-            let release = self.builder.release(
-                self.xid,
-                lease.assigned_ip,
-                lease.server_id,
-                Some("Client initiated release".to_string()),
-            );
+            let release = self.builder.release(self.xid, lease.assigned_ip, lease.server_id, Some(reason));
 
             self.send_unicast(release, lease.server_id).await?;
             info!("Sent DHCP RELEASE to {}", lease.server_id);
         }
 
         self.lease = None;
+        self.offered_ip = None;
         self.transition_to(DhcpState::Init)?;
         Ok(())
     }
@@ -487,9 +480,7 @@ impl Client {
 
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
             Ok(Ok(message)) => match message.validate() {
-                Ok(MessageType::DhcpAck) => {
-                    Ok(message)
-                }
+                Ok(MessageType::DhcpAck) => Ok(message),
                 Ok(MessageType::DhcpNak) => {
                     warn!("Renewal NAK received, returning to INIT");
                     Err(ClientError::Nak)
@@ -932,12 +923,16 @@ impl Client {
         if let Some(lease) = &self.lease {
             info!("🧹 Removing network configuration for lease");
 
-            if let Err(e) = apply_ntp_config(&Vec::new()).await {
-                warn!("⚠️  Failed to remove NTP servers: {}", e);
+            if lease.ntp_servers.is_some() {
+                if let Err(e) = apply_ntp_config(&Vec::new()).await {
+                    warn!("⚠️  Failed to remove NTP servers: {}", e);
+                }
             }
 
-            if let Err(e) = restore_dns_config().await {
-                warn!("⚠️  Failed to restore original DNS configuration: {}", e);
+            if lease.dns_servers.is_some() {
+                if let Err(e) = restore_dns_config().await {
+                    warn!("⚠️  Failed to restore original DNS configuration: {}", e);
+                }
             }
 
             // remove static routes
@@ -965,7 +960,10 @@ impl Client {
 
             // remove IP address from interface (only if we assigned it)
             if self.ip_already_existed {
-                info!("✋ Leaving IP address {}/{} on interface (it existed before DHCP)", lease.assigned_ip, lease.subnet_prefix);
+                info!(
+                    "✋ Leaving IP address {}/{} on interface (it existed before DHCP)",
+                    lease.assigned_ip, lease.subnet_prefix
+                );
             } else {
                 if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
                     warn!(
