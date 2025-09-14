@@ -6,10 +6,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use env_logger;
 use log::info;
 
-use dhcp_client::{
-    netlink::NetlinkHandle,
-    Client, ClientError,
-};
+use dhcp_client::{netlink::NetlinkHandle, Client, ClientError};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,33 +32,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("📡 DHCP INFORM demonstration");
 
     // Create RFC compliant client
-    let mut client = Client::new("en0", client_mac).await?;
+    let mut client = Client::new(interface_name, client_mac).await?;
 
     // Now use DHCP INFORM to get additional configuration information
     match client.inform(assigned_ip).await {
-        Ok(()) => {
-            info!("✅ DHCP Configuration obtained:");
-            if let Some(lease) = &client.lease {
-                info!("✅ DHCP Lease obtained:");
-                info!("   📍 Your IP: {}/{}", lease.assigned_ip, lease.subnet_prefix);
-                info!("   🚪 Gateway: {}", lease.gateway_ip);
-                info!("   ⏰ Lease Duration: {}s", lease.lease_time);
-
-                if let Some(ref dns_servers) = lease.dns_servers {
-                    info!("   🌐 DNS servers: {:?}", dns_servers);
-                }
-
-                if let Some(ref domain_name) = lease.domain_name {
-                    info!("   🏷️ Domain name: {}", domain_name);
-                }
-
-                if let Some(ref ntp_servers) = lease.ntp_servers {
-                    info!("   🕰️ NTP servers: {:?}", ntp_servers);
-                }
-            }
-
-            info!("🔄 Current state: {}", client.state());
-        }
+        Ok(()) => {}
         Err(ClientError::Timeout { .. }) => {
             info!("⏰ DHCP INFORM timed out");
         }

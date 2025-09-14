@@ -27,26 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Perform initial DHCP configuration (DORA sequence)
     match client.configure(&netlink_handle).await {
         Ok(()) => {
-            info!("✅ DHCP Configuration obtained:");
-            if let Some(lease) = &client.lease {
-                info!("✅ DHCP Lease obtained:");
-                info!("   📍 Your IP: {}/{}", lease.assigned_ip, lease.subnet_prefix);
-                info!("   🚪 Gateway: {}", lease.gateway_ip);
-                info!("   ⏰ Lease Duration: {}s", lease.lease_time);
-
-                if let Some(ref dns_servers) = lease.dns_servers {
-                    info!("   🌐 DNS servers: {:?}", dns_servers);
-                }
-
-                if let Some(ref domain_name) = lease.domain_name {
-                    info!("   🏷️ Domain name: {}", domain_name);
-                }
-
-                if let Some(ref ntp_servers) = lease.ntp_servers {
-                    info!("   🕰️ NTP servers: {:?}", ntp_servers);
-                }
-            }
-
             info!("🔄 Current state: {}", client.state());
         }
         Err(e) => {

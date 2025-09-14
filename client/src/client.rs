@@ -277,8 +277,24 @@ impl Client {
         let timeout_duration = Duration::from_secs(10);
 
         match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpAck)).await {
-            Ok(Ok((_, _ack))) => {
+            Ok(Ok((_, ack))) => {
                 info!("Received DHCP ACK for INFORM");
+                info!("✅ DHCP Configuration received:");
+                if let Some(subnet_mask) = ack.options.subnet_mask {
+                    info!("   📍 Subnet Mask: {}", subnet_mask);
+                }
+                if let Some(ref routers) = ack.options.routers {
+                    if let Some(gateway) = routers.first() {
+                        info!("   🚪 Gateway: {}", gateway);
+                    }
+                }
+                if let Some(ref dns_servers) = ack.options.domain_name_servers {
+                    info!("   🌐 DNS servers: {:?}", dns_servers);
+                }
+
+                if let Some(ref ntp_servers) = ack.options.ntp_servers {
+                    info!("   🕰  NTP servers: {:?}", ntp_servers);
+                }
                 Ok(())
             }
             Ok(Err(e)) => {
@@ -732,7 +748,7 @@ impl Client {
         }
 
         if let Some(ref ntp_servers) = ack.options.ntp_servers {
-            info!("   🕰️ NTP servers: {:?}", ntp_servers);
+            info!("   🕰  NTP servers: {:?}", ntp_servers);
         }
 
         // Get interface details
