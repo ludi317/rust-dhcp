@@ -14,6 +14,12 @@ use crate::netlink::NetlinkHandle;
 use crate::ntp::apply_ntp_config;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
 
+#[cfg(target_os = "linux")]
+use {
+    libc::EEXIST,
+    rtnetlink
+};
+
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -470,7 +476,6 @@ impl Client {
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
             Ok(Ok(message)) => match message.validate() {
                 Ok(MessageType::DhcpAck) => {
-                    info!("Lease renewal successful");
                     Ok(message)
                 }
                 Ok(MessageType::DhcpNak) => {
@@ -762,11 +767,15 @@ impl Client {
                 info!("✅ Successfully assigned IP address to interface");
             }
             Err(e) => {
-                warn!(
-                    "⚠️  Failed to assign IP address to interface {}: {}",
-                    netlink_handle.interface_name, e
-                );
-                return Err(ClientError::FailedToAddIP);
+                if is_eexist_error(&e) {
+                    info!("✋ IP address already assigned to interface");
+                } else {
+                    warn!(
+                        "❌  Failed to assign IP address to interface {}: {}",
+                        netlink_handle.interface_name, e
+                    );
+                    return Err(ClientError::FailedToAddIP);
+                }
             }
         }
 
@@ -958,6 +967,23 @@ impl Client {
 
 fn is_unicast(ip: Ipv4Addr) -> bool {
     !(ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() || ip.is_loopback())
+}
+
+#[cfg(target_os = "linux")]
+fn is_eexist_error(e: &Box<dyn std::error::Error>) -> bool {
+    if let Some(rtnetlink_error) = e.downcast_ref::<rtnetlink::Error>() {
+        if let rtnetlink::Error::NetlinkError(error_msg) = rtnetlink_error {
+            if let Some(code) = error_msg.code {
+                return code.get() == -(EEXIST as i32);
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_eexist_error(_e: &Box<dyn std::error::Error>) -> bool {
+    false
 }
 
 pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
