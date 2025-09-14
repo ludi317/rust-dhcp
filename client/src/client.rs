@@ -34,8 +34,8 @@ pub enum ClientError {
     InvalidTransition { from: DhcpState, to: DhcpState },
     #[error("Received DHCP NAK")]
     Nak,
-    #[error("IP address conflict detected")]
-    IpConflict,
+    #[error("IP address conflict detected for {assigned_ip} from server {server_id}")]
+    IpConflict { assigned_ip: Ipv4Addr, server_id: Ipv4Addr },
     #[error("Unexpected IP address. ACK gave {acked} but we were offered {offered}")]
     MismatchedIPAddress { acked: Ipv4Addr, offered: Ipv4Addr },
     #[error("Lease is invalid")]
@@ -749,7 +749,7 @@ impl Client {
             }
             ArpProbeResult::InUse => {
                 warn!("❌ IP address {} is already in use (detected via ARP)", ip);
-                return Err(ClientError::IpConflict);
+                return Err(ClientError::IpConflict { assigned_ip: ip, server_id });
             }
             ArpProbeResult::Error(e) => {
                 warn!("⚠️  ARP probe failed: {} - proceeding anyway", e);

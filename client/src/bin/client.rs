@@ -46,14 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 warn!("❌ DHCP configuration failed: {}", e);
-                if let ClientError::IpConflict = e {
+                if let ClientError::IpConflict { assigned_ip, server_id } = e {
                     warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
                     match client
-                        .decline(
-                            client.lease().unwrap().assigned_ip,
-                            client.lease().unwrap().server_id,
-                            "IP address conflict detected via ARP probe".to_string(),
-                        )
+                        .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
                         .await
                     {
                         Ok(()) => {
