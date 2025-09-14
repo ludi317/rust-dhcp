@@ -14,7 +14,6 @@ use crate::netlink::NetlinkHandle;
 use crate::ntp::apply_ntp_config;
 use crate::state::{DhcpState, LeaseInfo, RetryState};
 
-
 /// Errors that can occur during DHCP client operations
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
@@ -38,8 +37,8 @@ pub enum ClientError {
     MismatchedIPAddress { acked: Ipv4Addr, offered: Ipv4Addr },
     #[error("Lease is invalid")]
     InvalidLease,
-    #[error("Failed to apply network configuration")]
-    FailedToApplyNetworkConfig,
+    #[error("Failed to add ip address to interface")]
+    FailedToAddIP,
 }
 
 pub struct Client {
@@ -113,12 +112,12 @@ impl Client {
         self.transition_to(DhcpState::Requesting)?;
         let ack = self.request_phase(offer).await?;
 
+        let dora_duration = dora_start.elapsed().as_millis();
+        info!("DORA sequence completed in {:?} ms", dora_duration);
+
         // We're now bound with a valid lease
         self.handle_ack(&ack, netlink_handle).await?;
         self.transition_to(DhcpState::Bound)?;
-
-        let dora_duration = dora_start.elapsed().as_millis();
-        info!("DORA sequence completed in {:?} ms", dora_duration);
 
         Ok(())
     }
@@ -176,7 +175,7 @@ impl Client {
                     match self.renew_phase().await {
                         Ok(ack) => match self.handle_ack(&ack, netlink_handle).await {
                             Ok(()) => {
-                                info!("Lease rebound successfully");
+                                info!("Lease renewed successfully");
                                 self.transition_to(DhcpState::Bound)?;
                             }
                             Err(e) => {
@@ -691,6 +690,26 @@ impl Client {
         }
 
         // check if lease has changed
+        if let Some(lease) = &mut self.lease {
+            if lease.assigned_ip == ip
+                && lease.subnet_prefix == subnet
+                && lease.gateway_ip == gw
+                && lease.routes == cleaned_routes
+                && lease.ntp_servers.iter().collect::<HashSet<_>>() == ack.options.ntp_servers.iter().collect::<HashSet<_>>()
+                && lease.dns_servers.iter().collect::<HashSet<_>>() == ack.options.domain_name_servers.iter().collect::<HashSet<_>>()
+                && lease.domain_name == ack.options.domain_name
+            {
+                info!("🤝 No change in lease parameters");
+
+                // update lease start time
+                lease.lease_start = Instant::now();
+                lease.server_id = server_id;
+                lease.lease_time = lease_time;
+                lease.renewal_time = renewal_time;
+                lease.rebinding_time = rebinding_time;
+            }
+            return Ok(());
+        }
 
         info!("✅ DHCP Lease received:");
         info!("   📍 Your IP: {}/{}", ip, subnet);
@@ -747,7 +766,7 @@ impl Client {
                     "⚠️  Failed to assign IP address to interface {}: {}",
                     netlink_handle.interface_name, e
                 );
-                return Err(ClientError::FailedToApplyNetworkConfig);
+                return Err(ClientError::FailedToAddIP);
             }
         }
 
@@ -784,7 +803,6 @@ impl Client {
         if let Some(ref dns_servers) = ack.options.domain_name_servers {
             if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref()).await {
                 warn!("⚠️  Failed to apply DNS configuration: {}", e);
-                // Continue anyway - DNS failure shouldn't prevent DHCP from working
             } else {
                 info!("✅ Successfully applied DNS configuration");
             }
@@ -794,7 +812,6 @@ impl Client {
         if let Some(ref ntp_servers) = ack.options.ntp_servers {
             if let Err(e) = apply_ntp_config(ntp_servers).await {
                 warn!("⚠️  Failed to apply NTP configuration: {}", e);
-                // Continue anyway - NTP failure shouldn't prevent DHCP from working
             } else {
                 info!("✅ Successfully applied NTP configuration");
             }
@@ -933,7 +950,7 @@ impl Client {
 
             info!("🧹 Lease removal completed");
         }
-        
+
         self.lease = None;
         Ok(())
     }
@@ -942,7 +959,6 @@ impl Client {
 fn is_unicast(ip: Ipv4Addr) -> bool {
     !(ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() || ip.is_loopback())
 }
-
 
 pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
     let octets = netmask.octets();
