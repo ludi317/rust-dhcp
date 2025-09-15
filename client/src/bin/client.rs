@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             result = client.run_lifecycle(&netlink_handle) => {
                 match result {
                     Ok(()) => {
-                        info!("🏁 Lifecycle completed (infinite lease or clean exit)");
+                        info!("🏁 Lifecycle completed for infinite lease");
                         break; // Exit main loop for infinite leases
                     }
                     Err(ClientError::LeaseExpired) | Err(ClientError::Nak) |

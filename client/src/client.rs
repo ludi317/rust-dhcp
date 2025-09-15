@@ -631,7 +631,7 @@ impl Client {
                 lease.rebinding_time = rebinding_time;
                 return Ok(());
             }
-            info!("🆕 Lease has changed!");
+            info!("🆕 Lease parameters have changed!");
             self.undo_lease(netlink_handle).await;
         }
 
