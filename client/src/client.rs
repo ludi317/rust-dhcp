@@ -514,54 +514,6 @@ impl Client {
 
     }
 
-    /// Reboot phase - send REQUEST to verify previous IP (INIT-REBOOT)
-    async fn reboot_phase(&mut self, previous_ip: Ipv4Addr) -> Result<Message, ClientError> {
-        loop {
-            // Send REQUEST for previous IP
-            let request = self.builder.request_init_reboot(
-                self.xid,
-                previous_ip,
-                None, // lease time
-            );
-
-            self.send_broadcast(request).await?;
-            self.retry_state.record_attempt();
-
-            info!(
-                "Sent DHCP REQUEST (init-reboot) for {} (attempt {})",
-                previous_ip, self.retry_state.attempt
-            );
-
-            // Wait for ACK/NAK with timeout
-            let timeout_duration = self.retry_state.next_interval();
-
-            match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-                Ok(Ok(message)) => {
-                    if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
-                        info!("INIT-REBOOT successful for {}", previous_ip);
-                        return Ok(message);
-                    } else {
-                        warn!("INIT-REBOOT NAK received for {}, IP no longer valid", previous_ip);
-                        return Err(ClientError::Nak);
-                    }
-                },
-                Ok(Err(e)) => {
-                    debug!("INIT-REBOOT failed, retrying: {}", e);
-                }
-                Err(_) => {
-                    debug!("INIT-REBOOT timeout after {:?}, retrying", timeout_duration);
-                    // Continue loop for retry
-                }
-            }
-
-            // Check if we should give up
-            if self.retry_state.attempt >= 5 {
-                warn!("Too many INIT-REBOOT retries");
-                return Err(ClientError::Timeout { state: self.state });
-            }
-        }
-    }
-
     /// Handle ACK message and update lease information
     /// Errors it may return: InvalidLease, IPConflict, FailedToAddIP
     async fn handle_ack(&mut self, ack: &Message, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {

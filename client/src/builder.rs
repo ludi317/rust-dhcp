@@ -98,41 +98,6 @@ impl MessageBuilder {
         }
     }
 
-    /// Creates a `DHCPREQUEST` in `INIT-REBOOT` state.
-    pub fn request_init_reboot(&self, transaction_id: u32, address_request: Ipv4Addr, address_time: Option<u32>) -> Message {
-        let mut options = Options::default();
-        self.append_default_options(&mut options);
-
-        options.dhcp_message_type = Some(MessageType::DhcpRequest);
-        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
-        options.parameter_list = Some(Self::parameter_list());
-        options.address_request = Some(address_request);
-        options.address_time = address_time;
-        options.hostname = self.hostname.to_owned();
-
-        Message {
-            operation_code: OperationCode::BootRequest,
-            hardware_type: HardwareType::Ethernet,
-            hardware_address_length: EUI48LEN as u8,
-            hardware_options: Default::default(),
-
-            transaction_id,
-            seconds: Default::default(),
-            broadcast_reply: true,
-
-            client_ip_address: Ipv4Addr::new(0, 0, 0, 0),
-            your_ip_address: Ipv4Addr::new(0, 0, 0, 0),
-            server_ip_address: Ipv4Addr::new(0, 0, 0, 0),
-            gateway_ip_address: Ipv4Addr::new(0, 0, 0, 0),
-
-            client_hardware_address: self.client_hardware_address.to_owned(),
-            server_name: Default::default(),
-            boot_filename: Default::default(),
-
-            options,
-        }
-    }
-
     /// Creates a `DHCPREQUEST` in `BOUND`, `RENEWING` or `REBINDING` state.
     pub fn request_renew(&self, transaction_id: u32, client_ip_address: Ipv4Addr, address_time: Option<u32>) -> Message {
         let mut options = Options::default();
