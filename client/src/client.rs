@@ -36,8 +36,6 @@ pub enum ClientError {
     Nak,
     #[error("IP address conflict detected for {assigned_ip} from server {server_id}")]
     IpConflict { assigned_ip: Ipv4Addr, server_id: Ipv4Addr },
-    #[error("Unexpected IP address. ACK gave {acked} but we were offered {offered}")]
-    MismatchedIPAddress { acked: Ipv4Addr, offered: Ipv4Addr },
     #[error("Lease is invalid")]
     InvalidLease,
     #[error("Failed to add ip address to interface")]
@@ -142,9 +140,7 @@ impl Client {
 
             // Check if lease has expired
             if lease.is_expired() {
-                warn!("Lease has expired, returning to INIT state");
-                self.undo_lease(netlink_handle).await;
-                self.transition_to(DhcpState::Init)?;
+                warn!("Lease has expired");
                 return Err(ClientError::LeaseExpired);
             }
 
@@ -181,6 +177,9 @@ impl Client {
                                 warn!("Lease invalid, will retry: {:?}", e);
                             }
                         },
+                        Err(ClientError::Nak) => {
+                            return Err(ClientError::Nak)
+                        }
                         Err(ClientError::Timeout { .. }) => {
                             // Continue in RENEWING state, will check for T2 on next iteration
                             warn!("Renewal attempt timed out, will retry");
@@ -203,6 +202,9 @@ impl Client {
                                 warn!("Lease invalid, will retry: {:?}", e);
                             }
                         },
+                        Err(ClientError::Nak) => {
+                            return Err(ClientError::Nak)
+                        }
                         Err(ClientError::Timeout { .. }) => {
                             // Continue in REBINDING state, will check for expiry on next iteration
                             warn!("Rebinding attempt timed out, will retry");
@@ -232,7 +234,6 @@ impl Client {
         }
 
         self.lease = None;
-        self.offered_ip = None;
         self.transition_to(DhcpState::Init)?;
         Ok(())
     }
@@ -248,7 +249,6 @@ impl Client {
 
         // After decline, return to INIT state and start over
         self.lease = None;
-        self.offered_ip = None;
         self.transition_to(DhcpState::Init)?;
         Ok(())
     }
@@ -432,7 +432,7 @@ impl Client {
                         return Ok(message);
                     }
                     Ok(MessageType::DhcpNak) => {
-                        warn!("Received DHCP NAK, returning to INIT");
+                        warn!("Received DHCP NAK");
                         return Err(ClientError::Nak);
                     }
                     _ => {
@@ -482,12 +482,11 @@ impl Client {
             Ok(Ok(message)) => match message.validate() {
                 Ok(MessageType::DhcpAck) => Ok(message),
                 Ok(MessageType::DhcpNak) => {
-                    warn!("Renewal NAK received, returning to INIT");
+                    warn!("Renewal NAK received");
                     Err(ClientError::Nak)
                 }
                 _ => {
-                    debug!("Received unexpected message type during renewal");
-                    Err(ClientError::InvalidResponse)
+                    unreachable!()
                 }
             },
             Ok(Err(e)) => {
@@ -521,26 +520,27 @@ impl Client {
             Ok(Ok(message)) => match message.validate() {
                 Ok(MessageType::DhcpAck) => {
                     info!("Lease rebinding successful");
-                    return Ok(message);
+                    Ok(message)
                 }
                 Ok(MessageType::DhcpNak) => {
-                    warn!("Rebinding NAK received, returning to INIT");
-                    return Err(ClientError::Nak);
+                    warn!("Rebinding NAK received");
+                    Err(ClientError::Nak)
                 }
                 _ => {
-                    debug!("Received unexpected message type during rebinding");
+                    unreachable!()
                 }
             },
             Ok(Err(e)) => {
                 debug!("Rebinding failed: {}", e);
-                return Err(e);
+                Err(e)
             }
             Err(_) => {
                 debug!("Rebinding timeout after {:?}", timeout_duration);
+                Err(ClientError::Timeout { state: self.state })
             }
         }
 
-        Err(ClientError::Timeout { state: self.state })
+
     }
 
     /// Reboot phase - send REQUEST to verify previous IP (INIT-REBOOT)
@@ -605,10 +605,8 @@ impl Client {
         // earlier offered ip must match acked ip
         if let Some(offered_ip) = self.offered_ip {
             if offered_ip != ack.your_ip_address {
-                return Err(ClientError::MismatchedIPAddress {
-                    acked: ack.your_ip_address,
-                    offered: offered_ip,
-                });
+                error!("Unexpected IP address. ACK gave {} but earlier we were offered {}", ack.your_ip_address, offered_ip);
+                return Err(ClientError::InvalidLease);
             }
         }
 
@@ -919,7 +917,7 @@ impl Client {
     }
 
     /// Remove all network configuration applied by the current DHCP lease
-    async fn undo_lease(&mut self, netlink_handle: &NetlinkHandle) {
+    pub async fn undo_lease(&mut self, netlink_handle: &NetlinkHandle) {
         if let Some(lease) = &self.lease {
             info!("🧹 Removing network configuration for lease");
 

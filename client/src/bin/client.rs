@@ -61,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 info!("⏳ Waiting 10 seconds before retrying...");
-                // wait 10 seconds per RFC 2131 section 3.1.5
                 tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
                 info!("🔄 Restarting DHCP configuration process...");
                 continue; // Restart the configuration loop
@@ -78,8 +77,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!("🏁 Lifecycle completed (infinite lease or clean exit)");
                         break; // Exit main loop for infinite leases
                     }
-                    Err(ClientError::LeaseExpired) => {
-                        warn!("⏰ Lease expired, returning to INIT and restarting configuration");
+                    Err(ClientError::LeaseExpired) | Err(ClientError::Nak) |
+                    Err(ClientError::InvalidLease) | Err(ClientError::IpConflict{..}) => {
+                        client.undo_lease(&netlink_handle).await;
+                        info!("⏳ Waiting 10 seconds before retrying...");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                        info!("🔄 Restarting DHCP configuration process...");
                         continue; // Restart configuration loop
                     }
                     Err(e) => {
