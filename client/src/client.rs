@@ -211,7 +211,7 @@ impl Client {
         }
     }
 
-    /// Release the current lease
+    /// Release the current lease. Make sure to call undo_lease() after calling this.
     pub async fn release(&mut self, reason: String) -> Result<(), ClientError> {
         if let Some(lease) = self.lease.clone() {
             let release = self.builder.release(self.xid, lease.assigned_ip, lease.server_id, Some(reason));
@@ -220,8 +220,6 @@ impl Client {
             info!("Sent DHCP RELEASE to {}", lease.server_id);
         }
 
-        self.lease = None;
-        self.transition_to(DhcpState::Init)?;
         Ok(())
     }
 
@@ -234,9 +232,6 @@ impl Client {
         self.send_broadcast(decline).await?;
         info!("Sent DHCP DECLINE for {}", conflicted_ip);
 
-        // After decline, return to INIT state and start over
-        self.lease = None;
-        self.transition_to(DhcpState::Init)?;
         Ok(())
     }
 
@@ -413,18 +408,13 @@ impl Client {
             let timeout_duration = self.retry_state.next_interval();
 
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-                Ok(Ok(message)) => match message.validate() {
-                    Ok(MessageType::DhcpAck) => {
+                Ok(Ok(message)) => {
+                    if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
                         info!("Received DHCP ACK");
                         return Ok(message);
-                    }
-                    Ok(MessageType::DhcpNak) => {
+                    } else {
                         warn!("Received DHCP NAK");
                         return Err(ClientError::Nak);
-                    }
-                    _ => {
-                        debug!("Received unexpected message type, ignoring");
-                        continue;
                     }
                 },
                 Ok(Err(e)) => {
@@ -466,14 +456,12 @@ impl Client {
         let timeout_duration = lease.retry_interval(self.state);
 
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-            Ok(Ok(message)) => match message.validate() {
-                Ok(MessageType::DhcpAck) => Ok(message),
-                Ok(MessageType::DhcpNak) => {
+            Ok(Ok(message)) => {
+                if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
+                    Ok(message)
+                } else {
                     warn!("Renewal NAK received");
                     Err(ClientError::Nak)
-                }
-                _ => {
-                    unreachable!()
                 }
             },
             Ok(Err(e)) => {
@@ -504,17 +492,13 @@ impl Client {
         let timeout_duration = lease.retry_interval(self.state);
 
         match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-            Ok(Ok(message)) => match message.validate() {
-                Ok(MessageType::DhcpAck) => {
+            Ok(Ok(message)) => {
+                if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
                     info!("Lease rebinding successful");
                     Ok(message)
-                }
-                Ok(MessageType::DhcpNak) => {
+                } else {
                     warn!("Rebinding NAK received");
                     Err(ClientError::Nak)
-                }
-                _ => {
-                    unreachable!()
                 }
             },
             Ok(Err(e)) => {
@@ -552,18 +536,13 @@ impl Client {
             let timeout_duration = self.retry_state.next_interval();
 
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
-                Ok(Ok(message)) => match message.validate() {
-                    Ok(MessageType::DhcpAck) => {
+                Ok(Ok(message)) => {
+                    if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
                         info!("INIT-REBOOT successful for {}", previous_ip);
                         return Ok(message);
-                    }
-                    Ok(MessageType::DhcpNak) => {
+                    } else {
                         warn!("INIT-REBOOT NAK received for {}, IP no longer valid", previous_ip);
                         return Err(ClientError::Nak);
-                    }
-                    _ => {
-                        debug!("Received unexpected message type during init-reboot");
-                        continue;
                     }
                 },
                 Ok(Err(e)) => {
@@ -947,7 +926,7 @@ impl Client {
             // remove IP address from interface (only if we assigned it)
             if self.ip_already_existed {
                 info!(
-                    "✋ Leaving IP address {}/{} on interface (it existed before DHCP)",
+                    "✋ Leaving IP address {}/{} on interface (it already existed)",
                     lease.assigned_ip, lease.subnet_prefix
                 );
             } else {
@@ -962,6 +941,8 @@ impl Client {
             }
 
             info!("🧹 Lease removal completed");
+        } else {
+            error!("Lease is none");
         }
 
         self.lease = None;

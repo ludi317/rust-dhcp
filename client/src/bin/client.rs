@@ -3,7 +3,7 @@
 use dhcp_client::netlink::NetlinkHandle;
 use dhcp_client::{Client, ClientError};
 use env_logger;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::env;
 use std::process;
 use tokio::{select, signal};
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let netlink_handle = match NetlinkHandle::new(interface_name).await {
         Ok(handle) => {
             info!(
-                "Created netlink handle: interface='{}', index={}, mac={}",
+                "Created netlink handle: interface={}, index={}, mac={}",
                 handle.interface_name, handle.interface_idx, handle.interface_mac
             );
             handle
@@ -89,7 +89,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("📤 Releasing DHCP lease...");
                 let _ = client.release("Shutdown signal received".to_string()).await;
                 client.undo_lease(&netlink_handle).await;
-                info!("🔄 Final state: {}", client.state());
                 break;
             }
         }
