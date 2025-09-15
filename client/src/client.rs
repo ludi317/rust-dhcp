@@ -5,7 +5,7 @@ use arp::{announce_address, arp_probe, ArpProbeResult};
 use dhcp_framed::DhcpFramed;
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use eui48::MacAddress;
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use tokio::time::{sleep, timeout};
 
 use crate::builder::MessageBuilder;
@@ -162,7 +162,7 @@ impl Client {
                 DhcpState::Bound => {
                     // Wait until T1 (renewal time)
                     let wait_time = lease.time_until_renewal();
-                    debug!("Waiting {:?} until renewal time (T1)", wait_time);
+                    info!("Waiting {:?} until renewal time (T1)", wait_time);
                     sleep(wait_time).await;
                 }
                 DhcpState::Renewing | DhcpState::Rebinding => {
@@ -368,10 +368,10 @@ impl Client {
                     return Ok(offer);
                 }
                 Ok(Err(e)) => {
-                    debug!("DHCP OFFER failed, retrying: {}", e);
+                    warn!("DHCP OFFER failed, retrying: {}", e);
                 }
                 Err(_) => {
-                    debug!("DISCOVER timeout after {:?}, retrying", timeout_duration);
+                    warn!("DISCOVER timeout after {:?}, retrying", timeout_duration);
                     // Continue loop for retry
                 }
             }
@@ -410,7 +410,6 @@ impl Client {
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
                 Ok(Ok(message)) => {
                     if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
-                        info!("Received DHCP ACK");
                         return Ok(message);
                     } else {
                         warn!("Received DHCP NAK");
@@ -418,10 +417,10 @@ impl Client {
                     }
                 },
                 Ok(Err(e)) => {
-                    debug!("REQUEST failed, retrying: {}", e);
+                    warn!("REQUEST failed, retrying: {}", e);
                 }
                 Err(_) => {
-                    debug!("REQUEST timeout after {:?}, retrying", timeout_duration);
+                    warn!("REQUEST timeout after {:?}, retrying", timeout_duration);
                     // Continue loop for retry
                 }
             }
@@ -465,11 +464,11 @@ impl Client {
                 }
             },
             Ok(Err(e)) => {
-                debug!("Renewal failed: {}", e);
+                warn!("Renewal failed: {}", e);
                 Err(e)
             }
             Err(_) => {
-                debug!("Renewal timeout after {:?}", timeout_duration);
+                warn!("Renewal timeout after {:?}", timeout_duration);
                 Err(ClientError::Timeout { state: self.state })
             }
         }
@@ -502,11 +501,11 @@ impl Client {
                 }
             },
             Ok(Err(e)) => {
-                debug!("Rebinding failed: {}", e);
+                warn!("Rebinding failed: {}", e);
                 Err(e)
             }
             Err(_) => {
-                debug!("Rebinding timeout after {:?}", timeout_duration);
+                warn!("Rebinding timeout after {:?}", timeout_duration);
                 Err(ClientError::Timeout { state: self.state })
             }
         }
@@ -804,7 +803,7 @@ impl Client {
                                 return Ok((addr, message));
                             }
                             Ok(msg_type) => {
-                                debug!("Got {} but expected one of {:?}", msg_type, expected_types);
+                                warn!("Got {} but expected one of {:?}", msg_type, expected_types);
                                 continue;
                             }
                             Err(e) => {
