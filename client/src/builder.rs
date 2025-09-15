@@ -204,7 +204,6 @@ impl MessageBuilder {
         self.append_default_options(&mut options);
 
         options.dhcp_message_type = Some(MessageType::DhcpRelease);
-        options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.dhcp_server_id = Some(dhcp_server_id);
         options.dhcp_message = dhcp_message;
 
