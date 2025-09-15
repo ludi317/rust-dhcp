@@ -173,6 +173,9 @@ impl Client {
                                 info!("Lease renewed successfully");
                                 self.transition_to(DhcpState::Bound)?;
                             }
+                            Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict{..}) => {
+                                return Err(e)
+                            }
                             Err(e) => {
                                 warn!("Lease invalid, will retry: {:?}", e);
                             }
@@ -180,12 +183,7 @@ impl Client {
                         Err(ClientError::Nak) => {
                             return Err(ClientError::Nak)
                         }
-                        Err(ClientError::Timeout { .. }) => {
-                            // Continue in RENEWING state, will check for T2 on next iteration
-                            warn!("Renewal attempt timed out, will retry");
-                        }
                         Err(e) => {
-                            // Continue
                             warn!("Renewing failed, will retry: {:?}", e);
                         }
                     }
@@ -198,16 +196,15 @@ impl Client {
                                 info!("Lease rebound successfully");
                                 self.transition_to(DhcpState::Bound)?;
                             }
+                            Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict{..}) => {
+                                return Err(e)
+                            }
                             Err(e) => {
                                 warn!("Lease invalid, will retry: {:?}", e);
                             }
                         },
                         Err(ClientError::Nak) => {
                             return Err(ClientError::Nak)
-                        }
-                        Err(ClientError::Timeout { .. }) => {
-                            // Continue in REBINDING state, will check for expiry on next iteration
-                            warn!("Rebinding attempt timed out, will retry");
                         }
                         Err(e) => {
                             warn!("Rebinding failed, will retry: {:?}", e);
@@ -597,6 +594,7 @@ impl Client {
     }
 
     /// Handle ACK message and update lease information
+    /// Errors it may return: InvalidLease, IPConflict, FailedToAddIP
     async fn handle_ack(&mut self, ack: &Message, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
         let server_id = ack.options.dhcp_server_id.unwrap();
 
