@@ -5,7 +5,7 @@ use arp::{announce_address, arp_probe, ArpProbeResult};
 use dhcp_framed::DhcpFramed;
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use eui48::MacAddress;
-use log::{error, info, trace, warn};
+use log::{error, info, warn};
 use tokio::time::{sleep, timeout};
 
 use crate::builder::MessageBuilder;
@@ -58,7 +58,7 @@ pub struct Client {
     /// Last offered IP (for REQUEST messages)
     offered_ip: Option<Ipv4Addr>,
     /// Whether the IP address already existed when we tried to assign it
-    ip_already_existed: bool,
+    pub ip_preconfigured: bool,
 }
 
 impl Client {
@@ -79,7 +79,7 @@ impl Client {
             retry_state,
             xid,
             offered_ip: None,
-            ip_already_existed: false,
+            ip_preconfigured: false,
         })
     }
 
@@ -334,8 +334,6 @@ impl Client {
                 to: new_state,
             });
         }
-
-        trace!("State transition: {} -> {}", current_state, new_state);
 
         // Reset retry state on actual state change (not for retry transitions)
         if current_state != new_state {
@@ -686,12 +684,12 @@ impl Client {
         match netlink_handle.add_interface_ip(ip, subnet).await {
             Ok(()) => {
                 info!("✅ Successfully assigned IP address to interface");
-                self.ip_already_existed = false;
+                self.ip_preconfigured = false;
             }
             Err(e) => {
                 if is_eexist_error(&e) {
                     info!("✋ IP address already assigned to interface");
-                    self.ip_already_existed = true;
+                    self.ip_preconfigured = true;
                 } else {
                     warn!(
                         "❌  Failed to assign IP address to interface {}: {}",
@@ -789,7 +787,7 @@ impl Client {
                     Ok((addr, message)) => {
                         // Validate transaction ID
                         if message.transaction_id != self.xid {
-                            trace!(
+                            warn!(
                                 "Ignoring message with wrong transaction ID: {} (expected {})",
                                 message.transaction_id,
                                 self.xid
@@ -875,7 +873,7 @@ impl Client {
             }
 
             // remove IP address from interface (only if we assigned it)
-            if self.ip_already_existed {
+            if self.ip_preconfigured {
                 info!(
                     "✋ Leaving IP address {}/{} on interface (it already existed)",
                     lease.assigned_ip, lease.subnet_prefix
@@ -918,7 +916,7 @@ fn is_eexist_error(e: &Box<dyn std::error::Error>) -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn is_eexist_error(_e: &Box<dyn std::error::Error>) -> bool {
-    false
+    true
 }
 
 pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {

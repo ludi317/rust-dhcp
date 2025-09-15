@@ -232,7 +232,7 @@ impl NetlinkHandle {
     }
 
     pub async fn add_interface_ip(&self, _ip_addr: Ipv4Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err("already exists".into())
     }
 
     pub async fn add_host_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
