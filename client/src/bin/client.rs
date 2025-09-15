@@ -48,17 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 warn!("❌ DHCP configuration failed: {}", e);
                 if let ClientError::IpConflict { assigned_ip, server_id } = e {
                     warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
-                    match client
+                    let _ = client
                         .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
-                        .await
-                    {
-                        Ok(()) => {
-                            info!("📤 DHCPDECLINE sent successfully");
-                        }
-                        Err(decline_err) => {
-                            warn!("❌ Failed to send DHCPDECLINE: {}", decline_err);
-                        }
-                    }
+                        .await;
                 }
                 info!("⏳ Waiting 10 seconds before retrying...");
                 tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
@@ -85,9 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!("🔄 Restarting DHCP configuration process...");
                         continue; // Restart configuration loop
                     }
-                    Err(e) => {
-                        warn!("❌ Client lifecycle error: {}", e);
-                        return Err(e.into());
+                    Err(_) => {
+                        unreachable!()
                     }
                 }
             }
@@ -96,12 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Gracefully release the lease
                 info!("📤 Releasing DHCP lease...");
-                if let Err(e) = client.release("Shutdown signal received".to_string()).await {
-                    warn!("⚠️  Failed to release lease: {}", e);
-                } else {
-                    info!("✅ Lease released successfully");
-                }
-
+                let _ = client.release("Shutdown signal received".to_string()).await;
                 info!("🔄 Final state: {}", client.state());
                 break;
             }
