@@ -88,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Gracefully release the lease
                 info!("📤 Releasing DHCP lease...");
                 let _ = client.release("Shutdown signal received".to_string()).await;
+                client.undo_lease(&netlink_handle).await;
                 info!("🔄 Final state: {}", client.state());
                 break;
             }

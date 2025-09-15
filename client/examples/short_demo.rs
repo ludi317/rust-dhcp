@@ -68,5 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         info!("✅ Lease released successfully");
     }
+    client.undo_lease(&netlink_handle).await;
     Ok(())
 }
