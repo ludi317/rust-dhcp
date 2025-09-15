@@ -165,49 +165,39 @@ impl Client {
                     debug!("Waiting {:?} until renewal time (T1)", wait_time);
                     sleep(wait_time).await;
                 }
-                DhcpState::Renewing => {
-                    // Try to renew with original server
-                    match self.renew_phase().await {
+                DhcpState::Renewing | DhcpState::Rebinding => {
+                    let result = match self.state {
+                        DhcpState::Renewing => {
+                            info!("Attempting lease renewal");
+                            self.renew_phase().await
+                        }
+                        DhcpState::Rebinding => {
+                            info!("Attempting lease rebinding");
+                            self.rebind_phase().await
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    match result {
                         Ok(ack) => match self.handle_ack(&ack, netlink_handle).await {
                             Ok(()) => {
-                                info!("Lease renewed successfully");
+                                let action = if self.state == DhcpState::Renewing { "renewed" } else { "rebound" };
+                                info!("Lease {} successfully", action);
                                 self.transition_to(DhcpState::Bound)?;
                             }
                             Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict{..}) => {
                                 return Err(e)
                             }
                             Err(e) => {
-                                warn!("Lease invalid, will retry: {:?}", e);
+                                warn!("Applying lease failed, will retry: {:?}", e);
                             }
                         },
                         Err(ClientError::Nak) => {
                             return Err(ClientError::Nak)
                         }
                         Err(e) => {
-                            warn!("Renewing failed, will retry: {:?}", e);
-                        }
-                    }
-                }
-                DhcpState::Rebinding => {
-                    // Try to rebind with any server
-                    match self.rebind_phase().await {
-                        Ok(ack) => match self.handle_ack(&ack, netlink_handle).await {
-                            Ok(()) => {
-                                info!("Lease rebound successfully");
-                                self.transition_to(DhcpState::Bound)?;
-                            }
-                            Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict{..}) => {
-                                return Err(e)
-                            }
-                            Err(e) => {
-                                warn!("Lease invalid, will retry: {:?}", e);
-                            }
-                        },
-                        Err(ClientError::Nak) => {
-                            return Err(ClientError::Nak)
-                        }
-                        Err(e) => {
-                            warn!("Rebinding failed, will retry: {:?}", e);
+                            let phase = if self.state == DhcpState::Renewing { "Renewing" } else { "Rebinding" };
+                            warn!("{} failed, will retry: {:?}", phase, e);
                         }
                     }
                 }
