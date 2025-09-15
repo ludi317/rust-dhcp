@@ -7,7 +7,6 @@ use eui48::{MacAddress, EUI48LEN};
 use dhcp_protocol::*;
 
 const MAX_MESSAGE_SIZE: Option<u16> = Some(1280);
-const HTYPE_ETHERNET: u8 = 1;
 
 /// Builds common client messages with some parameters.
 pub struct MessageBuilder {
@@ -36,6 +35,7 @@ impl MessageBuilder {
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = address_request;
         options.address_time = address_time;
+        options.hostname = self.hostname.to_owned();
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -73,6 +73,7 @@ impl MessageBuilder {
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = Some(address_request);
         options.address_time = address_time;
+        options.hostname = self.hostname.to_owned();
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -107,6 +108,7 @@ impl MessageBuilder {
         options.parameter_list = Some(Self::parameter_list());
         options.address_request = Some(address_request);
         options.address_time = address_time;
+        options.hostname = self.hostname.to_owned();
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -140,6 +142,7 @@ impl MessageBuilder {
         options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
         options.address_time = address_time;
+        options.hostname = self.hostname.to_owned();
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -172,6 +175,7 @@ impl MessageBuilder {
         options.dhcp_message_type = Some(MessageType::DhcpInform);
         options.dhcp_max_message_size = MAX_MESSAGE_SIZE;
         options.parameter_list = Some(Self::parameter_list());
+        options.hostname = self.hostname.to_owned();
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -266,8 +270,7 @@ impl MessageBuilder {
     }
 
     fn append_default_options(&self, options: &mut Options) {
-        options.hostname = self.hostname.to_owned();
-        let mut client_id = vec![HTYPE_ETHERNET];
+        let mut client_id = vec![HardwareType::Ethernet as u8];
         client_id.extend_from_slice(self.client_hardware_address.as_bytes());
         options.client_id = Some(client_id);
     }
