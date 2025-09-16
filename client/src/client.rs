@@ -185,18 +185,18 @@ impl Client {
                                 info!("Lease {} successfully", action);
                                 self.transition_to(DhcpState::Bound)?;
                             }
-                            Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict{..}) => {
-                                return Err(e)
-                            }
+                            Err(e @ ClientError::InvalidLease) | Err(e @ ClientError::IpConflict { .. }) => return Err(e),
                             Err(e) => {
                                 warn!("Applying lease failed, will retry: {:?}", e);
                             }
                         },
-                        Err(ClientError::Nak) => {
-                            return Err(ClientError::Nak)
-                        }
+                        Err(ClientError::Nak) => return Err(ClientError::Nak),
                         Err(e) => {
-                            let phase = if self.state == DhcpState::Renewing { "Renewing" } else { "Rebinding" };
+                            let phase = if self.state == DhcpState::Renewing {
+                                "Renewing"
+                            } else {
+                                "Rebinding"
+                            };
                             warn!("{} failed, will retry: {:?}", phase, e);
                         }
                     }
@@ -413,7 +413,7 @@ impl Client {
                         warn!("Received DHCP NAK");
                         return Err(ClientError::Nak);
                     }
-                },
+                }
                 Ok(Err(e)) => {
                     warn!("REQUEST failed, retrying: {}", e);
                 }
@@ -460,7 +460,7 @@ impl Client {
                     warn!("Renewal NAK received");
                     Err(ClientError::Nak)
                 }
-            },
+            }
             Ok(Err(e)) => {
                 warn!("Renewal failed: {}", e);
                 Err(e)
@@ -497,7 +497,7 @@ impl Client {
                     warn!("Rebinding NAK received");
                     Err(ClientError::Nak)
                 }
-            },
+            }
             Ok(Err(e)) => {
                 warn!("Rebinding failed: {}", e);
                 Err(e)
@@ -507,8 +507,6 @@ impl Client {
                 Err(ClientError::Timeout { state: self.state })
             }
         }
-
-
     }
 
     /// Handle ACK message and update lease information
@@ -521,7 +519,10 @@ impl Client {
         // earlier offered ip must match acked ip
         if let Some(offered_ip) = self.offered_ip {
             if offered_ip != ack.your_ip_address {
-                error!("Unexpected IP address. ACK gave {} but earlier we were offered {}", ack.your_ip_address, offered_ip);
+                error!(
+                    "Unexpected IP address. ACK gave {} but earlier we were offered {}",
+                    ack.your_ip_address, offered_ip
+                );
                 return Err(ClientError::InvalidLease);
             }
         }
@@ -537,9 +538,21 @@ impl Client {
             warn!("IP Address in ACK from {} is a link-local unicast IP: {}", server_id, ip);
         }
 
-        let lease_time = ack.options.address_time.unwrap();
-        let renewal_time = ack.options.renewal_time.unwrap_or(lease_time / 2);
-        let rebinding_time = ack.options.rebinding_time.unwrap_or(((lease_time as u64 * 7) / 8) as u32);
+        let lease_time = ack.options.address_time.unwrap(); // validator ensures this is not None
+        let (renewal_time, rebinding_time) = match (ack.options.renewal_time, ack.options.rebinding_time) {
+            (Some(renewal_time), Some(rebinding_time)) if renewal_time < rebinding_time && rebinding_time < lease_time => {
+                (renewal_time, rebinding_time)
+            }
+            // only T1 given; set T2 = T1 + 3/4 (LT - T1). This means T1 < T2 < LT, and if T1 = 1/2 LT, then T2 = 7/8 LT, per default.
+            (Some(renewal_time), None) if renewal_time < lease_time => (renewal_time, renewal_time + (lease_time - renewal_time) * 3 / 4),
+            // only T2 given; set T1 = 1/2 LT. This means T1 <= T2 < LT
+            (None, Some(rebinding_time)) if rebinding_time < lease_time => ((lease_time / 2).min(rebinding_time), rebinding_time),
+            // enforce T1 < T2 < lease_time
+            (_, _) => {
+                warn!("Using default T1 and T2 values since the provided values are invalid");
+                (lease_time / 2, ((lease_time as u64 * 7) / 8) as u32)
+            }
+        };
 
         let subnet: u8 = match ack.options.subnet_mask {
             Some(mask) => {
@@ -663,7 +676,10 @@ impl Client {
             }
             ArpProbeResult::InUse => {
                 warn!("❌ IP address {} is already in use (detected via ARP)", ip);
-                return Err(ClientError::IpConflict { assigned_ip: ip, server_id });
+                return Err(ClientError::IpConflict {
+                    assigned_ip: ip,
+                    server_id,
+                });
             }
             ArpProbeResult::Error(e) => {
                 warn!("⚠️  ARP probe failed: {} - proceeding anyway", e);
@@ -789,8 +805,7 @@ impl Client {
                         if message.transaction_id != self.xid {
                             warn!(
                                 "Ignoring message with wrong transaction ID: {} (expected {})",
-                                message.transaction_id,
-                                self.xid
+                                message.transaction_id, self.xid
                             );
                             continue;
                         }
