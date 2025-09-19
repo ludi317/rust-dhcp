@@ -5,7 +5,7 @@ use arp::{announce_address, arp_probe, ArpProbeResult};
 use dhcp_framed::DhcpFramed;
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use eui48::MacAddress;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tokio::time::{sleep, timeout};
 
 use crate::builder::MessageBuilder;
@@ -809,7 +809,7 @@ impl Client {
                     Ok((addr, message)) => {
                         // Validate transaction ID
                         if message.transaction_id != self.xid {
-                            warn!(
+                            debug!(
                                 "Ignoring message with wrong transaction ID: {} (expected {})",
                                 message.transaction_id, self.xid
                             );
