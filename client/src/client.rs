@@ -602,6 +602,7 @@ impl Client {
                 cleaned_routes.push(route.clone());
             }
         }
+        cleaned_routes.sort();
 
         // if default gateway isn't defined in classless routes option, fall back to router option
         if default_gw.is_none() {
@@ -616,6 +617,11 @@ impl Client {
         }
 
         let gw = default_gw.unwrap();
+        let mut cleaned_dns_servers = ack.options.domain_name_servers.clone();
+        if let Some(servers) = &mut cleaned_dns_servers {
+            servers.retain(|&s| is_unicast(s));
+            servers.sort();
+        }
 
         if !netlink::is_same_subnet(ip, subnet, gw) {
             warn!(
@@ -631,7 +637,7 @@ impl Client {
                 && lease.gateway_ip == gw
                 && lease.routes == cleaned_routes
                 && lease.ntp_servers.iter().collect::<HashSet<_>>() == ack.options.ntp_servers.iter().collect::<HashSet<_>>()
-                && lease.dns_servers.iter().collect::<HashSet<_>>() == ack.options.domain_name_servers.iter().collect::<HashSet<_>>()
+                && lease.dns_servers == cleaned_dns_servers
                 && lease.domain_name == ack.options.domain_name
             {
                 info!("🤝 No change in lease parameters");
@@ -653,7 +659,7 @@ impl Client {
         info!("   🚪 Gateway: {}", gw);
         info!("   ⏰ Lease Duration: {}s", lease_time);
 
-        if let Some(ref dns_servers) = ack.options.domain_name_servers {
+        if let Some(ref dns_servers) = cleaned_dns_servers {
             info!("   🌐 DNS servers: {:?}", dns_servers);
         }
 
@@ -746,7 +752,7 @@ impl Client {
         }
 
         // Apply DNS configuration
-        if let Some(ref dns_servers) = ack.options.domain_name_servers {
+        if let Some(ref dns_servers) = cleaned_dns_servers {
             if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref()).await {
                 warn!("⚠️  Failed to apply DNS configuration: {}", e);
             } else {
@@ -772,7 +778,7 @@ impl Client {
             lease_time,
             renewal_time,
             rebinding_time,
-            ack.options.domain_name_servers.clone(),
+            cleaned_dns_servers,
             ack.options.domain_name.clone(),
             ack.options.ntp_servers.clone(),
         ));
