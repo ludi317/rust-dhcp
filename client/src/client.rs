@@ -593,13 +593,13 @@ impl Client {
 
                 // Check for default gateway (mask == 0)
                 if mask.is_unspecified() && default_gw.is_none() {
-                    default_gw = Some(via.clone());
+                    default_gw = Some(*via);
                     dbg!("using default gw {:?} from classless route option", via);
                 }
 
                 // Add to seen set and include in result
-                seen_destinations.insert(dest.clone());
-                cleaned_routes.push(route.clone());
+                seen_destinations.insert(*dest);
+                cleaned_routes.push(*route);
             }
         }
         cleaned_routes.sort();
@@ -899,15 +899,13 @@ impl Client {
                     "✋ Leaving IP address {}/{} on interface (it already existed)",
                     lease.assigned_ip, lease.subnet_prefix
                 );
+            } else if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
+                warn!(
+                    "⚠️  Failed to remove IP address {}/{} from interface: {}",
+                    lease.assigned_ip, lease.subnet_prefix, e
+                );
             } else {
-                if let Err(e) = netlink_handle.delete_interface_ip(lease.assigned_ip, lease.subnet_prefix).await {
-                    warn!(
-                        "⚠️  Failed to remove IP address {}/{} from interface: {}",
-                        lease.assigned_ip, lease.subnet_prefix, e
-                    );
-                } else {
-                    info!("✅ Removed IP address {}/{} from interface", lease.assigned_ip, lease.subnet_prefix);
-                }
+                info!("✅ Removed IP address {}/{} from interface", lease.assigned_ip, lease.subnet_prefix);
             }
 
             info!("🧹 Lease removal completed");

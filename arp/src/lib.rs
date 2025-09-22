@@ -167,7 +167,7 @@ impl ArpPacket {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn send(&self, interface_idx: u32) -> Result<c_int, Box<dyn Error>> {
+    fn send(&self, _interface_idx: u32) -> Result<c_int, Box<dyn Error>> {
         Err("Raw packet sending not implemented for this platform".into())
     }
 }

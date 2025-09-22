@@ -192,7 +192,7 @@ impl NetlinkHandle {
         // Check if interface is up, and bring it up if not
         if !(ifconfig_output.contains("flags=") && ifconfig_output.contains("UP")) {
             // Interface is down, bring it up
-            let up_output = Command::new("sudo").args(&["ifconfig", interface_name, "up"]).output()?;
+            let up_output = Command::new("sudo").args(["ifconfig", interface_name, "up"]).output()?;
 
             if !up_output.status.success() {
                 let stderr = String::from_utf8_lossy(&up_output.stderr);
@@ -265,7 +265,7 @@ impl NetlinkHandle {
 }
 
 pub fn is_same_subnet(interface_ip: Ipv4Addr, interface_subnet: u8, gateway: Ipv4Addr) -> bool {
-    let mask_bits = (0xFFFFFFFFu32 << (32 - interface_subnet)) & 0xFFFFFFFF;
+    let mask_bits = 0xFFFFFFFFu32 << (32 - interface_subnet);
     let client_network = u32::from(interface_ip) & mask_bits;
     let gateway_network = u32::from(gateway) & mask_bits;
     client_network == gateway_network
