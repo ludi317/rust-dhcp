@@ -623,6 +623,12 @@ impl Client {
             servers.sort();
         }
 
+        let mut cleaned_ntp_servers = ack.options.ntp_servers.clone();
+        if let Some(servers) = &mut cleaned_ntp_servers {
+            servers.retain(|&s| !s.is_unspecified());
+            servers.sort();
+        }
+
         if !netlink::is_same_subnet(ip, subnet, gw) {
             warn!(
                 "Default gateway {} is not on the same subnet as assigned IP {} (/{} mask)",
@@ -636,7 +642,7 @@ impl Client {
                 && lease.subnet_prefix == subnet
                 && lease.gateway_ip == gw
                 && lease.routes == cleaned_routes
-                && lease.ntp_servers.iter().collect::<HashSet<_>>() == ack.options.ntp_servers.iter().collect::<HashSet<_>>()
+                && lease.ntp_servers == cleaned_ntp_servers
                 && lease.dns_servers == cleaned_dns_servers
                 && lease.domain_name == ack.options.domain_name
             {
@@ -667,7 +673,7 @@ impl Client {
             info!("   🏷️ Domain name: {}", domain_name);
         }
 
-        if let Some(ref ntp_servers) = ack.options.ntp_servers {
+        if let Some(ref ntp_servers) = cleaned_ntp_servers {
             info!("   🕰  NTP servers: {:?}", ntp_servers);
         }
 
@@ -761,7 +767,7 @@ impl Client {
         }
 
         // Apply NTP servers
-        if let Some(ref ntp_servers) = ack.options.ntp_servers {
+        if let Some(ref ntp_servers) = cleaned_ntp_servers {
             if let Err(e) = apply_ntp_config(ntp_servers).await {
                 warn!("⚠️  Failed to apply NTP configuration: {}", e);
             } else {
@@ -780,7 +786,7 @@ impl Client {
             rebinding_time,
             cleaned_dns_servers,
             ack.options.domain_name.clone(),
-            ack.options.ntp_servers.clone(),
+            cleaned_ntp_servers,
         ));
         Ok(())
     }
