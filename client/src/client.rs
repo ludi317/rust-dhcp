@@ -759,7 +759,7 @@ impl Client {
 
         // Apply DNS configuration
         if let Some(ref dns_servers) = cleaned_dns_servers {
-            if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref()).await {
+            if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref(), &netlink_handle.interface_name).await {
                 warn!("⚠️  Failed to apply DNS configuration: {}", e);
             } else {
                 info!("✅ Successfully applied DNS configuration");
@@ -871,7 +871,7 @@ impl Client {
             }
 
             if lease.dns_servers.is_some() {
-                if let Err(e) = restore_dns_config().await {
+                if let Err(e) = restore_dns_config(&netlink_handle.interface_name).await {
                     warn!("⚠️  Failed to restore original DNS configuration: {}", e);
                 }
             }
