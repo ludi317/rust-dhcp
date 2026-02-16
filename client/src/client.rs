@@ -102,14 +102,20 @@ impl Client {
 
         // Start discovery process
         self.transition_to(DhcpState::Selecting)?;
+        let discover_start = Instant::now();
         let offer = self.discover_phase().await?;
+        let offer_latency = discover_start.elapsed().as_millis();
 
         // Request the offered configuration
         self.transition_to(DhcpState::Requesting)?;
+        let request_start = Instant::now();
         let ack = self.request_phase(offer).await?;
+        let ack_latency = request_start.elapsed().as_millis();
 
         let dora_duration = dora_start.elapsed().as_millis();
         info!("DORA sequence completed in {:?} ms", dora_duration);
+        info!("DHCP OFFER latency: {} ms", offer_latency);
+        info!("DHCP ACK latency: {} ms", ack_latency);
 
         // We're now bound with a valid lease
         self.handle_ack(&ack, netlink_handle).await?;

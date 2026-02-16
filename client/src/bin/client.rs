@@ -5,7 +5,8 @@ use dhcp_client::{Client, ClientError};
 use log::{info, warn};
 use std::env;
 use std::process;
-use tokio::{select, signal};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::select;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,6 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut client = Client::new(&netlink_handle.interface_name, netlink_handle.interface_mac).await?;
+
+    // Setup signal handlers
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigusr1 = signal(SignalKind::user_defined1())?;
+    let mut sigusr2 = signal(SignalKind::user_defined2())?;
+    let mut sighup = signal(SignalKind::hangup())?;
 
     info!("🚀 Starting DHCP client");
     // Main DHCP client loop with configuration and lifecycle management
@@ -81,16 +88,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            _ = signal::ctrl_c() => {
-                info!("🛑 Shutdown signal received");
-
-                // Gracefully release the lease
+            _ = tokio::signal::ctrl_c() => {
+                info!("🛑 Shutdown signal received (Ctrl+C)");
                 if !client.ip_preconfigured {
                     info!("📤 Releasing DHCP lease...");
                     let _ = client.release("Shutdown signal received".to_string()).await;
                 }
                 client.undo_lease(&netlink_handle).await;
                 break;
+            }
+            _ = sigterm.recv() => {
+                info!("🛑 SIGTERM received - graceful shutdown");
+                if !client.ip_preconfigured {
+                    info!("📤 Releasing DHCP lease...");
+                    let _ = client.release("SIGTERM received".to_string()).await;
+                }
+                client.undo_lease(&netlink_handle).await;
+                break;
+            }
+            _ = sigusr1.recv() => {
+                info!("🔄 SIGUSR1 received - triggering lease renewal");
+                // Force renewal by breaking lifecycle and restarting
+                client.undo_lease(&netlink_handle).await;
+                info!("🔄 Restarting DHCP configuration process...");
+                continue;
+            }
+            _ = sigusr2.recv() => {
+                info!("📤 SIGUSR2 received - releasing lease");
+                if !client.ip_preconfigured {
+                    let _ = client.release("SIGUSR2 received".to_string()).await;
+                }
+                client.undo_lease(&netlink_handle).await;
+                info!("🔄 Restarting DHCP configuration process...");
+                continue;
+            }
+            _ = sighup.recv() => {
+                info!("🔄 SIGHUP received - triggering lease renewal");
+                // Force renewal by breaking lifecycle and restarting
+                client.undo_lease(&netlink_handle).await;
+                info!("🔄 Restarting DHCP configuration process...");
+                continue;
             }
         }
     }
