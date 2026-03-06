@@ -102,20 +102,20 @@ impl Client {
 
         // Start discovery process
         self.transition_to(DhcpState::Selecting)?;
-        let discover_start = Instant::now();
-        let offer = self.discover_phase().await?;
-        let offer_latency = discover_start.elapsed().as_millis();
+        let discover_phase_start = Instant::now();
+        let (offer, offer_rtt) = self.discover_phase().await?;
+        let discover_phase_time = discover_phase_start.elapsed();
 
         // Request the offered configuration
         self.transition_to(DhcpState::Requesting)?;
-        let request_start = Instant::now();
-        let ack = self.request_phase(offer).await?;
-        let ack_latency = request_start.elapsed().as_millis();
+        let request_phase_start = Instant::now();
+        let (ack, ack_rtt) = self.request_phase(offer).await?;
+        let request_phase_time = request_phase_start.elapsed();
 
         let dora_duration = dora_start.elapsed().as_millis();
         info!("DORA sequence completed in {:?} ms", dora_duration);
-        info!("DHCP OFFER latency: {} ms", offer_latency);
-        info!("DHCP ACK latency: {} ms", ack_latency);
+        info!("DHCP OFFER latency: {} ms (phase_time: {} ms)", offer_rtt.as_millis(), discover_phase_time.as_millis());
+        info!("DHCP ACK latency: {} ms (phase_time: {} ms)", ack_rtt.as_millis(), request_phase_time.as_millis());
 
         // We're now bound with a valid lease
         self.handle_ack(&ack, netlink_handle).await?;
@@ -354,11 +354,13 @@ impl Client {
     // === DHCP Protocol Phases ===
 
     /// Discovery phase - send DISCOVER and wait for OFFER
-    async fn discover_phase(&mut self) -> Result<Message, ClientError> {
+    /// Returns the OFFER message and the RTT (time from sending DISCOVER to receiving OFFER for successful attempt)
+    async fn discover_phase(&mut self) -> Result<(Message, Duration), ClientError> {
         loop {
             // Send DISCOVER
             let discover = self.builder.discover(self.xid, None, None);
 
+            let attempt_start = Instant::now();
             self.send_broadcast(discover).await?;
             self.retry_state.record_attempt();
             info!("Sent DHCP DISCOVER (attempt {})", self.retry_state.attempt);
@@ -368,8 +370,9 @@ impl Client {
 
             match timeout(timeout_duration, self.wait_for_message_type(MessageType::DhcpOffer)).await {
                 Ok(Ok((_, offer))) => {
+                    let rtt = attempt_start.elapsed();
                     info!("Received DHCP OFFER for {}", offer.your_ip_address);
-                    return Ok(offer);
+                    return Ok((offer, rtt));
                 }
                 Ok(Err(e)) => {
                     warn!("DHCP OFFER failed, retrying: {}", e);
@@ -388,7 +391,8 @@ impl Client {
     }
 
     /// Request phase - send REQUEST and wait for ACK
-    async fn request_phase(&mut self, offer: Message) -> Result<Message, ClientError> {
+    /// Returns the ACK message and the RTT (time from sending REQUEST to receiving ACK for successful attempt)
+    async fn request_phase(&mut self, offer: Message) -> Result<(Message, Duration), ClientError> {
         self.offered_ip = Some(offer.your_ip_address);
 
         loop {
@@ -400,6 +404,7 @@ impl Client {
                 offer.options.dhcp_server_id.unwrap(),
             );
 
+            let attempt_start = Instant::now();
             self.send_broadcast(request).await?;
             self.retry_state.record_attempt();
 
@@ -414,7 +419,8 @@ impl Client {
             match timeout(timeout_duration, self.wait_for_ack_or_nak()).await {
                 Ok(Ok(message)) => {
                     if message.options.dhcp_message_type == Some(MessageType::DhcpAck) {
-                        return Ok(message);
+                        let rtt = attempt_start.elapsed();
+                        return Ok((message, rtt));
                     } else {
                         warn!("Received DHCP NAK");
                         return Err(ClientError::Nak);
