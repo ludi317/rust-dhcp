@@ -229,6 +229,46 @@ impl Client {
         Ok(())
     }
 
+    /// Trigger lease renewal (DHCPREQUEST unicast to server).
+    /// This is the proper RFC 2131 renewal - extends existing lease without full DORA.
+    /// Compatible with udhcpc SIGUSR1 behavior.
+    pub async fn renew(&mut self, netlink_handle: &NetlinkHandle) -> Result<(), ClientError> {
+        if self.state != DhcpState::Bound {
+            return Err(ClientError::Protocol("Must be in BOUND state to renew".to_string()));
+        }
+
+        if self.lease.is_none() {
+            return Err(ClientError::Protocol("No lease to renew".to_string()));
+        }
+
+        info!("🔄 Initiating lease renewal (DHCPREQUEST)");
+        self.transition_to(DhcpState::Renewing)?;
+
+        match self.renew_phase().await {
+            Ok(ack) => {
+                match self.handle_ack(&ack, netlink_handle).await {
+                    Ok(()) => {
+                        info!("✅ Lease renewed successfully");
+                        self.transition_to(DhcpState::Bound)?;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        warn!("❌ Failed to apply renewed lease: {:?}", e);
+                        // Transition to Init for full DORA restart
+                        self.transition_to(DhcpState::Init)?;
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("❌ Renewal failed: {:?}", e);
+                // Transition to Init for full DORA restart
+                self.transition_to(DhcpState::Init)?;
+                Err(e)
+            }
+        }
+    }
+
     /// Decline an IP address due to conflict detection
     pub async fn decline(&mut self, conflicted_ip: Ipv4Addr, server_id: Ipv4Addr, reason: String) -> Result<(), ClientError> {
         info!("Declining IP {} due to: {}", conflicted_ip, reason);

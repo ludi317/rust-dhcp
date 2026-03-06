@@ -1,7 +1,7 @@
 //! DHCP client executable
 
 use dhcp_client::netlink::NetlinkHandle;
-use dhcp_client::{Client, ClientError};
+use dhcp_client::{Client, ClientError, DhcpState};
 use log::{info, warn};
 use std::env;
 use std::process;
@@ -45,25 +45,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🚀 Starting DHCP client");
     // Main DHCP client loop with configuration and lifecycle management
     loop {
-        match client.configure(&netlink_handle).await {
-            Ok(()) => {
-                info!("✅ DHCP Lease applied");
-                info!("🔄 Current state: {}", client.state());
-            }
-            Err(e) => {
-                warn!("❌ DHCP configuration failed: {}", e);
-                if let ClientError::IpConflict { assigned_ip, server_id } = e {
-                    warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
-                    let _ = client
-                        .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
-                        .await;
+        // Only run DORA if we don't have a valid lease (skip after successful renewal)
+        if client.state() != DhcpState::Bound {
+            match client.configure(&netlink_handle).await {
+                Ok(()) => {
+                    info!("✅ DHCP Lease applied");
+                    info!("🔄 Current state: {}", client.state());
                 }
-                info!("⏳ Waiting 10 seconds before retrying...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                info!("🔄 Restarting DHCP configuration process...");
-                continue; // Restart the configuration loop
-            }
-        };
+                Err(e) => {
+                    warn!("❌ DHCP configuration failed: {}", e);
+                    if let ClientError::IpConflict { assigned_ip, server_id } = e {
+                        warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
+                        let _ = client
+                            .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
+                            .await;
+                    }
+                    info!("⏳ Waiting 10 seconds before retrying...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    info!("🔄 Restarting DHCP configuration process...");
+                    continue; // Restart the configuration loop
+                }
+            };
+        }
 
         // Run the client lifecycle with graceful shutdown
         info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
@@ -107,27 +110,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             _ = sigusr1.recv() => {
-                info!("🔄 SIGUSR1 received - triggering lease renewal");
-                // Force renewal by breaking lifecycle and restarting
-                client.undo_lease(&netlink_handle).await;
-                info!("🔄 Restarting DHCP configuration process...");
-                continue;
+                // SIGUSR1: Proper lease renewal (like udhcpc) - sends DHCPREQUEST to server
+                info!("🔄 SIGUSR1 received - initiating lease renewal");
+                match client.renew(&netlink_handle).await {
+                    Ok(()) => {
+                        info!("✅ Lease renewed successfully via SIGUSR1");
+                        // State is BOUND, continue to run_lifecycle (configure will be skipped)
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("❌ Renewal failed: {:?}, falling back to full DORA", e);
+                        client.undo_lease(&netlink_handle).await;
+                        continue;
+                    }
+                }
             }
             _ = sigusr2.recv() => {
-                info!("📤 SIGUSR2 received - releasing lease");
+                info!("📤 SIGUSR2 received - releasing lease and exiting");
                 if !client.ip_preconfigured {
                     let _ = client.release("SIGUSR2 received".to_string()).await;
                 }
                 client.undo_lease(&netlink_handle).await;
-                info!("🔄 Restarting DHCP configuration process...");
-                continue;
+                break;
             }
             _ = sighup.recv() => {
-                info!("🔄 SIGHUP received - triggering lease renewal");
-                // Force renewal by breaking lifecycle and restarting
-                client.undo_lease(&netlink_handle).await;
-                info!("🔄 Restarting DHCP configuration process...");
-                continue;
+                // SIGHUP: Same as SIGUSR1 - proper lease renewal
+                info!("🔄 SIGHUP received - initiating lease renewal");
+                match client.renew(&netlink_handle).await {
+                    Ok(()) => {
+                        info!("✅ Lease renewed successfully via SIGHUP");
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("❌ Renewal failed: {:?}, falling back to full DORA", e);
+                        client.undo_lease(&netlink_handle).await;
+                        continue;
+                    }
+                }
             }
         }
     }
