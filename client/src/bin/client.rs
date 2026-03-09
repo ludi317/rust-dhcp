@@ -1,11 +1,12 @@
 //! DHCP client executable
 
 use dhcp_client::netlink::NetlinkHandle;
-use dhcp_client::{Client, ClientError};
+use dhcp_client::{Client, ClientError, DhcpState};
 use log::{info, warn};
 use std::env;
 use std::process;
-use tokio::{select, signal};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::select;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,28 +36,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = Client::new(&netlink_handle.interface_name, netlink_handle.interface_mac).await?;
 
+    // Setup signal handlers
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigusr1 = signal(SignalKind::user_defined1())?;
+    let mut sigusr2 = signal(SignalKind::user_defined2())?;
+    let mut sighup = signal(SignalKind::hangup())?;
+
     info!("🚀 Starting DHCP client");
     // Main DHCP client loop with configuration and lifecycle management
     loop {
-        match client.configure(&netlink_handle).await {
-            Ok(()) => {
-                info!("✅ DHCP Lease applied");
-                info!("🔄 Current state: {}", client.state());
-            }
-            Err(e) => {
-                warn!("❌ DHCP configuration failed: {}", e);
-                if let ClientError::IpConflict { assigned_ip, server_id } = e {
-                    warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
-                    let _ = client
-                        .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
-                        .await;
+        // Only run DORA if we don't have a valid lease (skip after successful renewal)
+        if client.state() != DhcpState::Bound {
+            match client.configure(&netlink_handle).await {
+                Ok(()) => {
+                    info!("✅ DHCP Lease applied");
+                    info!("🔄 Current state: {}", client.state());
                 }
-                info!("⏳ Waiting 10 seconds before retrying...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                info!("🔄 Restarting DHCP configuration process...");
-                continue; // Restart the configuration loop
-            }
-        };
+                Err(e) => {
+                    warn!("❌ DHCP configuration failed: {}", e);
+                    if let ClientError::IpConflict { assigned_ip, server_id } = e {
+                        warn!("🚨 IP address conflict detected! Sending DHCPDECLINE...");
+                        let _ = client
+                            .decline(assigned_ip, server_id, "IP address conflict detected via ARP probe".to_string())
+                            .await;
+                    }
+                    info!("⏳ Waiting 10 seconds before retrying...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                    info!("🔄 Restarting DHCP configuration process...");
+                    continue; // Restart the configuration loop
+                }
+            };
+        }
 
         // Run the client lifecycle with graceful shutdown
         info!("🏃 Running DHCP client lifecycle (press Ctrl+C to exit gracefully)");
@@ -81,16 +91,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            _ = signal::ctrl_c() => {
-                info!("🛑 Shutdown signal received");
-
-                // Gracefully release the lease
+            _ = tokio::signal::ctrl_c() => {
+                info!("🛑 Shutdown signal received (Ctrl+C)");
                 if !client.ip_preconfigured {
                     info!("📤 Releasing DHCP lease...");
                     let _ = client.release("Shutdown signal received".to_string()).await;
                 }
                 client.undo_lease(&netlink_handle).await;
                 break;
+            }
+            _ = sigterm.recv() => {
+                info!("🛑 SIGTERM received - graceful shutdown");
+                if !client.ip_preconfigured {
+                    info!("📤 Releasing DHCP lease...");
+                    let _ = client.release("SIGTERM received".to_string()).await;
+                }
+                client.undo_lease(&netlink_handle).await;
+                break;
+            }
+            _ = sigusr1.recv() => {
+                // SIGUSR1: Proper lease renewal (like udhcpc) - sends DHCPREQUEST to server
+                info!("🔄 SIGUSR1 received - initiating lease renewal");
+                match client.renew(&netlink_handle).await {
+                    Ok(()) => {
+                        info!("✅ Lease renewed successfully via SIGUSR1");
+                        // State is BOUND, continue to run_lifecycle (configure will be skipped)
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("❌ Renewal failed: {:?}, falling back to full DORA", e);
+                        client.undo_lease(&netlink_handle).await;
+                        continue;
+                    }
+                }
+            }
+            _ = sigusr2.recv() => {
+                info!("📤 SIGUSR2 received - releasing lease and exiting");
+                if !client.ip_preconfigured {
+                    let _ = client.release("SIGUSR2 received".to_string()).await;
+                }
+                client.undo_lease(&netlink_handle).await;
+                break;
+            }
+            _ = sighup.recv() => {
+                // SIGHUP: Same as SIGUSR1 - proper lease renewal
+                info!("🔄 SIGHUP received - initiating lease renewal");
+                match client.renew(&netlink_handle).await {
+                    Ok(()) => {
+                        info!("✅ Lease renewed successfully via SIGHUP");
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("❌ Renewal failed: {:?}, falling back to full DORA", e);
+                        client.undo_lease(&netlink_handle).await;
+                        continue;
+                    }
+                }
             }
         }
     }
