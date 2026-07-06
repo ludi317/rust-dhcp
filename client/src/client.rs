@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use arp::{announce_address, arp_probe, ArpProbeResult};
@@ -59,10 +60,18 @@ pub struct Client {
     offered_ip: Option<Ipv4Addr>,
     /// Whether the IP address already existed when we tried to assign it
     pub ip_preconfigured: bool,
+    /// Path to the resolv.conf file (the v4 client writes to `<path>.ipv4`).
+    pub resolv_conf_path: PathBuf,
 }
 
 impl Client {
     pub async fn new(interface_name: &str, client_hardware_address: MacAddress) -> Result<Self, ClientError> {
+        Self::new_with_resolv_conf(interface_name, client_hardware_address, PathBuf::from("/etc/resolv.conf")).await
+    }
+
+    pub async fn new_with_resolv_conf(
+        interface_name: &str, client_hardware_address: MacAddress, resolv_conf_path: PathBuf,
+    ) -> Result<Self, ClientError> {
         let socket = DhcpFramed::bind(interface_name).await?;
 
         let hostname = hostname::get().ok().and_then(|s| s.into_string().ok());
@@ -80,6 +89,7 @@ impl Client {
             xid,
             offered_ip: None,
             ip_preconfigured: false,
+            resolv_conf_path,
         })
     }
 
@@ -811,7 +821,9 @@ impl Client {
 
         // Apply DNS configuration
         if let Some(ref dns_servers) = cleaned_dns_servers {
-            if let Err(e) = apply_dns_config(dns_servers, ack.options.domain_name.as_deref()).await {
+            let path = ipv4_resolv_path(&self.resolv_conf_path);
+            let nameservers: Vec<IpAddr> = dns_servers.iter().map(|a| IpAddr::V4(*a)).collect();
+            if let Err(e) = apply_dns_config(&path, &nameservers, ack.options.domain_name.as_deref(), &[], "v4").await {
                 warn!("⚠️  Failed to apply DNS configuration: {}", e);
             } else {
                 info!("✅ Successfully applied DNS configuration");
@@ -923,7 +935,8 @@ impl Client {
             }
 
             if lease.dns_servers.is_some() {
-                if let Err(e) = restore_dns_config().await {
+                let path = ipv4_resolv_path(&self.resolv_conf_path);
+                if let Err(e) = restore_dns_config(&path).await {
                     warn!("⚠️  Failed to restore original DNS configuration: {}", e);
                 }
             }
@@ -1000,4 +1013,11 @@ pub fn netmask_to_prefix(netmask: Ipv4Addr) -> u8 {
     let octets = netmask.octets();
     let mask_u32 = ((octets[0] as u32) << 24) | ((octets[1] as u32) << 16) | ((octets[2] as u32) << 8) | (octets[3] as u32);
     mask_u32.count_ones() as u8
+}
+
+/// Suffix the caller-supplied resolv.conf path with `.ipv4` for the v4 split-file write.
+pub(crate) fn ipv4_resolv_path(base: &std::path::Path) -> std::path::PathBuf {
+    let mut s = base.as_os_str().to_os_string();
+    s.push(".ipv4");
+    std::path::PathBuf::from(s)
 }

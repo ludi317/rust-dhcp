@@ -6,10 +6,28 @@ Application of network configuration is only supported on Linux.
 
 ## Features
 
-- ✅ **DHCP client state machine** (RFC 2131)
-- ✅ **Address Conflict Detection**  ARP probes and announcements (RFC 5227)  
+- ✅ **DHCPv4 client state machine** (RFC 2131)
+- ✅ **DHCPv6 stateful client (IA_NA)** (RFC 8415) — SOLICIT/REQUEST/RENEW/REBIND/RELEASE
+- ✅ **Address Conflict Detection**  ARP probes and announcements (RFC 5227)
 - ✅ **Lease Management** - T1/T2 timers, renewal, rebinding, and expiration handling
 - ✅ **Lease Application** - Applies network configuration returned by DHCP server, including adding IP, routes, DNS, NTP
+
+## CLI
+
+```
+client [--ipv6 | --ipv4] [--resolv-conf-path PATH] [--duid-path PATH] [--solicit-timeout SEC] <interface_name>
+```
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--ipv4` / `--ipv6` | `--ipv4` | Select address family. Run as two separate invocations for dual-stack. |
+| `--resolv-conf-path PATH` | `/etc/resolv.conf` | Base path; client writes `<PATH>.ipv4` or `<PATH>.ipv6`. Merging the two is the caller's responsibility. |
+| `--duid-path PATH` | `/var/lib/rust-dhcp/duid` | DUID-LLT location. Use a per-netns path when running multiple clients on the same host. |
+| `--solicit-timeout SEC` | `30` | Wall-clock cap on the DHCPv6 SOLICIT phase. Matches `udhcpc6 -n` semantics. IPv6 only. |
+
+### Signals
+
+`SIGHUP` / `SIGUSR1` triggers a renew. `SIGUSR2` releases and exits. `SIGTERM` releases and exits gracefully.
 
 ## Running Client Executable
 ```bash

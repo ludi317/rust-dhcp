@@ -1,7 +1,7 @@
 //! Network configuration utilities - interface management, routing, and DNS setup
 
 use eui48::MacAddress;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 #[cfg(target_os = "linux")]
 use {
     futures::stream::TryStreamExt,
@@ -156,6 +156,45 @@ impl NetlinkHandle {
         self.handle.route().del(route).execute().await?;
         Ok(())
     }
+
+    /// Add a global IPv6 address to the interface. Lifetimes are not currently
+    /// propagated to IFA_CACHEINFO — the kernel default (forever) is used.
+    /// The DHCPv6 client tracks the lease lifetime itself and removes the
+    /// address on expiry.
+    pub async fn add_interface_ip_v6(&self, addr: Ipv6Addr, prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        self.handle
+            .address()
+            .add(self.interface_idx, IpAddr::V6(addr), prefix_len)
+            .execute()
+            .await?;
+        Ok(())
+    }
+
+    /// Remove a global IPv6 address from the interface.
+    pub async fn delete_interface_ip_v6(&self, addr: Ipv6Addr, prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        let message = AddressMessageBuilder::<Ipv6Addr>::new()
+            .index(self.interface_idx)
+            .address(addr, prefix_len)
+            .build();
+        self.handle.address().del(message).execute().await?;
+        Ok(())
+    }
+
+    /// List global-scope IPv6 addresses on the interface.
+    pub async fn get_interface_ipv6_global(&self) -> Result<Vec<Ipv6Addr>, Box<dyn std::error::Error>> {
+        let mut addrs = self.handle.address().get().set_link_index_filter(self.interface_idx).execute();
+        let mut out = Vec::new();
+        while let Some(addr) = addrs.try_next().await? {
+            for attr in addr.attributes.iter() {
+                if let netlink_packet_route::address::AddressAttribute::Address(IpAddr::V6(ip)) = attr {
+                    if !ip.is_loopback() && (ip.segments()[0] & 0xffc0) != 0xfe80 {
+                        out.push(*ip);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -261,6 +300,18 @@ impl NetlinkHandle {
 
     pub async fn replace_default_route(&self, _gateway: Ipv4Addr) -> Result<(), Box<dyn std::error::Error>> {
         Err("replace_default_route not implemented for this platform".into())
+    }
+
+    pub async fn add_interface_ip_v6(&self, _addr: Ipv6Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        Err("add_interface_ip_v6 not implemented for this platform".into())
+    }
+
+    pub async fn delete_interface_ip_v6(&self, _addr: Ipv6Addr, _prefix_len: u8) -> Result<(), Box<dyn std::error::Error>> {
+        Err("delete_interface_ip_v6 not implemented for this platform".into())
+    }
+
+    pub async fn get_interface_ipv6_global(&self) -> Result<Vec<Ipv6Addr>, Box<dyn std::error::Error>> {
+        Err("get_interface_ipv6_global not implemented for this platform".into())
     }
 }
 
