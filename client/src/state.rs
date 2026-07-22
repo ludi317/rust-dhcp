@@ -187,11 +187,11 @@ impl RetryState {
 
     /// Get the next retry interval using exponential backoff
     pub fn next_interval(&self) -> Duration {
-        use rand::Rng;
+        use rand::RngExt;
         let interval_secs = 1 << self.attempt.min(4); // Between 2^1 and 2^4 seconds
 
-        let mut rng = rand::thread_rng();
-        let randomized_interval = interval_secs * 1000_i64 + rng.gen_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
+        let mut rng = rand::rng();
+        let randomized_interval = interval_secs * 1000_i64 + rng.random_range(-500..=500) as i64; // -0.5 to +0.5 seconds in milliseconds
         Duration::from_millis(randomized_interval as u64)
     }
 }

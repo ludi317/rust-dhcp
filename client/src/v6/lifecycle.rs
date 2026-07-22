@@ -5,14 +5,14 @@
 
 use std::time::Duration;
 
-use rand::Rng;
+use rand::RngExt;
 
 /// Default wall-clock SOLICIT deadline matching `udhcpc6 -n` semantics.
 pub const DEFAULT_SOLICIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn rand_factor() -> f64 {
-    let mut rng = rand::thread_rng();
-    rng.gen_range(-0.1..=0.1)
+    let mut rng = rand::rng();
+    rng.random_range(-0.1..=0.1)
 }
 
 /// First retransmission timeout: RT = IRT + RAND * IRT.

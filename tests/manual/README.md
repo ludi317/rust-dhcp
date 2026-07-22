@@ -1,5 +1,8 @@
 # Manual test runbook — DHCPv6 against Kea
 
+> **See also:** [`../lab/README.md`](../lab/README.md) — scripted end-to-end
+> version of these checks (veth+Kea in Docker, works on macOS).
+
 Phase 1 (MIST-202976) ships without automated CI for DHCPv6. This runbook is
 the supported way to verify the `--ipv6` path end-to-end. Run on Linux —
 netlink address ops require a Linux kernel.
@@ -54,10 +57,15 @@ sudo ip netns exec v6test \
    shows an address from the `2001:db8:1::100/64` pool.
 2. **DNS written** — `cat /etc/netns/v6test/resolv.conf.ipv6` shows the two
    `2001:db8::53/54` nameservers plus `search example.test lab.example.test`.
-3. **Renewal at T1** — wait ~20 s; the rust-dhcp log emits `DHCPv6 → Renew`
-   and Kea logs a matching `REPLY`. The lease's `acquired` instant resets.
-4. **Rebind on server loss** — kill Kea after a successful lease; rust-dhcp
-   should attempt RENEW, fail, and at T2 transition to REBIND.
+3. **Renewal at T1** — wait ~20 s; the rust-dhcp log emits a second
+   `✅ DHCPv6 lease received` (there is no explicit `→ Renew` line — renewal
+   is inferred from the recurring lease-received message and the matching
+   `RENEW`/`REPLY` pair in Kea's log).
+4. **Rebind on server loss** — kill Kea after a successful lease. `renew_phase`
+   retries internally until the 60s valid lifetime elapses, so the
+   `T2 reached during renewal; switching to REBIND` log line appears roughly
+   at lease expiry (~60s after bind), not at T2 (40s). Then the client exits
+   the lifecycle with `LeaseExpired` and re-solicits.
 5. **Clean release on SIGTERM** — `sudo kill -TERM <pid>`. Log shows
    `📤 DHCPv6 RELEASE`, the leased address is removed from `veth1`, and
    `resolv.conf.ipv6` is restored.

@@ -1,4 +1,4 @@
-//! DHCP client executable. Dispatches between IPv4 and IPv6 modes.
+//! DHCP client executable
 
 use dhcp_client::netlink::NetlinkHandle;
 use dhcp_client::v6::ClientV6Error;

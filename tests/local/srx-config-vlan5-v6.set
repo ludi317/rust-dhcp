@@ -1,0 +1,61 @@
+# SRX300 (Junos 25.4R1.12) — DHCPv6 + RA on irb.5 for MIST-202976 lab tests.
+#
+# Landing this config is a MANUAL step. Push with `commit confirmed 5` the
+# first time so a mistake auto-rolls back after 5 minutes:
+#
+#   ssh srx300 "cli -c 'configure; load set terminal; commit confirmed 5'" \
+#       < tests/local/srx-config-vlan5-v6.set
+#   ssh srx300 "cli -c 'show dhcpv6 server statistics'"   # sanity
+#   ssh srx300 "cli -c 'commit'"                           # confirm
+#
+# Rollback: ssh srx300 "cli -c 'rollback 1; commit'"
+#
+# The trust zone on irb.5 already has `host-inbound-traffic system-services all`
+# (verified in docs/lab-topology.md), so no zone changes are needed for
+# UDP/547 (DHCPv6) or ICMPv6 (RA / NDP).
+#
+# Values here match tests/fixtures/kea-dhcp6.conf so Tier 1 (Kea) and Tier 2
+# (SRX) assertions can be identical: 60s valid, 20s renew, 40s rebind,
+# DNS 2001:db8::53 / 2001:db8::54, search domain example.test. Uses the
+# reserved RFC 3849 documentation prefix (2001:db8::/32).
+
+# --- irb.5 gets a v6 address (required for Junos to listen for DHCPv6 there).
+set interfaces irb unit 5 family inet6 address 2001:db8:5::1/64
+
+# --- Address pool.
+set access address-assignment pool vlan5-v6-pool family inet6 prefix 2001:db8:5::/64
+set access address-assignment pool vlan5-v6-pool family inet6 range vlan5-v6-range low  2001:db8:5::100/128
+set access address-assignment pool vlan5-v6-pool family inet6 range vlan5-v6-range high 2001:db8:5::1ff/128
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes dns-server 2001:db8::53
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes dns-server 2001:db8::54
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes preferred-lifetime 30
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes valid-lifetime    60
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes t1-renewal-time   20
+set access address-assignment pool vlan5-v6-pool family inet6 dhcp-attributes t2-rebinding-time 40
+# Junos 25.4 SRX inet6 dhcp-attributes has no `domain-search` — Tier 2 test 3
+# only asserts the DNS servers, not the search domain (Tier 1 / Kea still checks both).
+
+# --- DHCPv6 server on the IRB.
+set system services dhcp-local-server dhcpv6 group vlan5-v6 interface irb.5
+
+# --- Router Advertisement with M-bit (managed / stateful DHCPv6) and
+#     A-bit off on the prefix (no SLAAC alongside stateful DHCPv6).
+set protocols router-advertisement interface irb.5 managed-configuration
+set protocols router-advertisement interface irb.5 prefix 2001:db8:5::/64 no-autonomous
+set protocols router-advertisement interface irb.5 max-advertisement-interval 60
+set protocols router-advertisement interface irb.5 min-advertisement-interval 20
+
+# =============================================================================
+# TEST DEACTIVATION BLOCK — apply with `load set` then `commit`.
+#
+# Test 6 (rebind on server loss) and Test 9 (SOLICIT timeout) both need the
+# DHCPv6 server disabled while the rest of the v6 config (IRB address, RA)
+# stays in place. Paste the deactivate lines below, commit, run the test,
+# then paste the matching `activate` lines and commit again.
+# =============================================================================
+#
+# deactivate system services dhcp-local-server dhcpv6 group vlan5-v6
+#
+# ...run test...
+#
+# activate system services dhcp-local-server dhcpv6 group vlan5-v6
